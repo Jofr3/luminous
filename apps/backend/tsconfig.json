@@ -1,0 +1,10 @@
+{
+  "extends": "@luminous/typescript-config/cloudflare-worker.json",
+  "compilerOptions": {
+    "paths": {
+      "~/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

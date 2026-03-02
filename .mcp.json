@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "bunx",
+      "args": ["@upstash/context7-mcp", "--api-key", "${CONTEXT7_API_KEY}"]
+    },
+    "dbhub": {
+      "command": "bunx",
+      "args": [
+        "@bytebase/dbhub@latest", "--transport", "stdio", "--dsn", "${DB_TYPE}://${DB_PATH}"
+      ]
+    },
+}
+

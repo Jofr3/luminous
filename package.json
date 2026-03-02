@@ -1,0 +1,17 @@
+{
+  "name": "luminous",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "clean": "turbo clean"
+  },
+  "devDependencies": {
+    "turbo": "latest",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "bun@1.2.4"
+}
