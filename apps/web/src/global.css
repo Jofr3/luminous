@@ -112,7 +112,6 @@ img {
 
 .card-item:hover {
   border-color: var(--accent);
-  transform: translateY(-2px);
 }
 
 .card-item__image-wrapper {

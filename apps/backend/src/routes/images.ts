@@ -26,6 +26,7 @@ imagesRoute.get("/*", async (c) => {
     "Content-Type": "image/webp",
     "Cache-Control": "public, max-age=31536000, immutable",
     "ETag": object.etag,
+    "Access-Control-Allow-Origin": "*",
   });
 
   const response = new Response(object.body, { headers });
