@@ -129,10 +129,7 @@ export default component$(() => {
   return (
     <div>
       <SearchBar />
-      <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>
-        {store.total.toLocaleString()} cards found
-      </p>
-      <CardGrid cards={store.cards} />
+<CardGrid cards={store.cards} />
       {store.loading && (
         <div class="load-more-spinner">
           <div class="spinner" />

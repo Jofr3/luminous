@@ -24,12 +24,6 @@ export const CardItem = component$<CardItemProps>(({ card }) => {
           <div class="card-item__placeholder">No Image</div>
         )}
       </div>
-      <div class="card-item__info">
-        <span class="card-item__name">{card.name}</span>
-        {card.set_name && (
-          <span class="card-item__set">{card.set_name}</span>
-        )}
-      </div>
     </div>
   );
 });
