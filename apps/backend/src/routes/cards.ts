@@ -1,10 +1,7 @@
 import { Hono } from "hono";
+import type { AppEnv } from "../types";
 
-type Bindings = {
-  DB: D1Database;
-};
-
-const cardsRoute = new Hono<{ Bindings: Bindings }>();
+const cardsRoute = new Hono<AppEnv>();
 
 cardsRoute.get("/", async (c) => {
   const q = c.req.query("q")?.trim() || "";

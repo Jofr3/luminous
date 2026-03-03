@@ -11,5 +11,11 @@
       "database_id": "REPLACE_WITH_YOUR_DATABASE_ID",
       "migrations_dir": "migrations"
     }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "IMAGES",
+      "bucket_name": "luminous-images"
+    }
   ]
 }

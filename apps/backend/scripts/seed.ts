@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
+import { getPlatformProxy } from "wrangler";
 import type { SerieBrief, Serie, Set, Card } from "./tcgdex-types";
 
 const API_BASE = "https://api.tcgdex.net/v2/en";
@@ -59,6 +60,51 @@ async function pMap<T, R>(
 }
 
 // ---------------------------------------------------------------------------
+// R2 image upload (uses local R2 binding via getPlatformProxy)
+// ---------------------------------------------------------------------------
+
+let r2Bucket: R2Bucket | null = null;
+let disposeProxy: (() => Promise<void>) | null = null;
+
+async function getR2(): Promise<R2Bucket> {
+  if (r2Bucket) return r2Bucket;
+  const proxy = await getPlatformProxy<{ IMAGES: R2Bucket }>({
+    configPath: resolve(dirname(import.meta.path), "../wrangler.jsonc"),
+  });
+  r2Bucket = proxy.env.IMAGES;
+  disposeProxy = proxy.dispose;
+  return r2Bucket;
+}
+
+async function uploadImageToR2(card: Card): Promise<void> {
+  if (!card.image) return;
+
+  const r2Key = `cards/${card.id}/high.webp`;
+  const imageUrl = `${card.image}/high.webp`;
+
+  try {
+    const r2 = await getR2();
+
+    // Check if already exists (idempotent)
+    const existing = await r2.head(r2Key);
+    if (existing) return;
+
+    const res = await fetch(imageUrl);
+    if (!res.ok) {
+      console.error(`      [img] HTTP ${res.status} for ${card.id}`);
+      return;
+    }
+
+    const data = await res.arrayBuffer();
+    await r2.put(r2Key, data, {
+      httpMetadata: { contentType: "image/webp" },
+    });
+  } catch (err) {
+    console.error(`      [img] Failed for ${card.id}:`, err);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // SQL generation
 // ---------------------------------------------------------------------------
 
@@ -75,7 +121,7 @@ function cardInsert(c: Card): string {
     esc(c.id),
     esc(c.localId),
     esc(c.name),
-    esc(c.image),
+    c.image ? esc(`cards/${c.id}/high.webp`) : "NULL",
     esc(c.category),
     esc(c.illustrator),
     esc(c.rarity),
@@ -163,6 +209,7 @@ async function main() {
         cardBriefs,
         async (brief) => {
           const card = await fetchJson<Card>(`/cards/${brief.id}`);
+          if (card) await uploadImageToR2(card);
           return card;
         },
         CONCURRENCY
@@ -200,6 +247,9 @@ async function main() {
     process.exit(1);
   }
   console.log("Seed data applied successfully!");
+
+  // Clean up miniflare proxy
+  if (disposeProxy) await disposeProxy();
 }
 
 main().catch((err) => {

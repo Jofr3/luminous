@@ -1,10 +1,7 @@
 import { Hono } from "hono";
+import type { AppEnv } from "../types";
 
-type Bindings = {
-  DB: D1Database;
-};
-
-const setsRoute = new Hono<{ Bindings: Bindings }>();
+const setsRoute = new Hono<AppEnv>();
 
 setsRoute.get("/", async (c) => {
   const rows = await c.env.DB.prepare(

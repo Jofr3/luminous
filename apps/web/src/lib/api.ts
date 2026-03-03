@@ -1,6 +1,11 @@
 import type { CardListResponse } from "./types";
 
-const API_URL = import.meta.env.PUBLIC_API_URL ?? "http://localhost:8787";
+export const API_URL = import.meta.env.PUBLIC_API_URL ?? "http://localhost:8787";
+
+export function imageUrl(key: string | null): string | null {
+  if (!key) return null;
+  return `${API_URL}/images/${key}`;
+}
 
 const cache = new Map<string, { data: CardListResponse; ts: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes

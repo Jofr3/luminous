@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "db:migrate:local": "wrangler d1 migrations apply luminous-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply luminous-db --remote",
-    "db:seed": "bun run scripts/seed.ts"
+    "db:seed": "bun run scripts/seed.ts",
+    "db:seed-card": "bun run scripts/seed-card.ts",
+    "db:migrate-images": "bun run scripts/migrate-images.ts"
   },
   "dependencies": {
     "hono": "^4"

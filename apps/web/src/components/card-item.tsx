@@ -1,19 +1,20 @@
 import { component$ } from "@builder.io/qwik";
 import type { CardSummary } from "~/lib/types";
+import { imageUrl } from "~/lib/api";
 
 interface CardItemProps {
   card: CardSummary;
 }
 
 export const CardItem = component$<CardItemProps>(({ card }) => {
-  const imageUrl = card.image ? `${card.image}/high.webp` : null;
+  const src = imageUrl(card.image);
 
   return (
-    <div class="card-item">
+    <div id={card.id} class="card-item">
       <div class="card-item__image-wrapper">
-        {imageUrl ? (
+        {src ? (
           <img
-            src={imageUrl}
+            src={src}
             alt={card.name}
             loading="lazy"
             width={245}
