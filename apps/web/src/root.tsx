@@ -13,7 +13,7 @@ export default component$(() => {
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Luminouse — Pokemon TCG Browser</title>
+        <title>Luminous — Pokemon TCG Browser</title>
         <ServiceWorkerRegister />
       </head>
       <body>

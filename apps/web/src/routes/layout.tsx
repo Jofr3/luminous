@@ -6,7 +6,7 @@ export default component$(() => {
       <header>
         <div class="container">
           <h1>
-            Luminouse<span>Pokemon TCG Browser</span>
+            Luminous<span>Pokemon TCG Browser</span>
           </h1>
         </div>
       </header>

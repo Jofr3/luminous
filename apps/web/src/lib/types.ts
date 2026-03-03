@@ -10,16 +10,10 @@ export interface CardSummary {
   set_name: string | null;
 }
 
-export interface PaginationInfo {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-}
-
 export interface CardListResponse {
   data: CardSummary[];
-  pagination: PaginationInfo;
+  total: number;
+  hasMore: boolean;
 }
 
 export interface SetSummary {

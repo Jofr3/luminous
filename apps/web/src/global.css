@@ -20,6 +20,11 @@
 
 html {
   color-scheme: dark;
+  scrollbar-width: none;
+}
+
+html::-webkit-scrollbar {
+  display: none;
 }
 
 body {
@@ -190,38 +195,24 @@ header h1 span {
   text-overflow: ellipsis;
 }
 
-/* Pagination */
-.pagination {
+/* Loading Spinner */
+.load-more-spinner {
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: 1rem;
-  padding: 2rem 0 3rem;
+  padding: 2rem 0;
 }
 
-.pagination__link {
-  padding: 0.5rem 1rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--accent);
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: border-color 0.15s, background 0.15s;
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
 }
 
-.pagination__link:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent);
-}
-
-.pagination__link--disabled {
-  color: var(--text-muted);
-  cursor: default;
-  pointer-events: none;
-}
-
-.pagination__info {
-  font-size: 0.875rem;
-  color: var(--text-muted);
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

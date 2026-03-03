@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "luminouse",
+      "name": "luminous",
       "devDependencies": {
         "turbo": "latest",
         "typescript": "^5.7.0",

@@ -19,7 +19,7 @@ app.route("/api/cards", cardsRoute);
 app.route("/api/sets", setsRoute);
 
 app.get("/", (c) => {
-  return c.json({ message: "Luminouse API" });
+  return c.json({ message: "Luminous API" });
 });
 
 export default app;

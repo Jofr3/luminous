@@ -15,7 +15,6 @@ export const SearchBar = component$(() => {
         if (query.value.trim()) {
           params.set("q", query.value.trim());
         }
-        params.set("page", "1");
         nav(`/?${params.toString()}`);
       }}
     >

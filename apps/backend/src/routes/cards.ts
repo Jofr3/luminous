@@ -7,12 +7,11 @@ type Bindings = {
 const cardsRoute = new Hono<{ Bindings: Bindings }>();
 
 cardsRoute.get("/", async (c) => {
-  const page = Math.max(1, Number(c.req.query("page")) || 1);
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit")) || 40));
   const q = c.req.query("q")?.trim() || "";
   const category = c.req.query("category")?.trim() || "";
   const set = c.req.query("set")?.trim() || "";
-  const offset = (page - 1) * limit;
+  const limit = Math.min(Math.max(parseInt(c.req.query("limit") || "40", 10) || 40, 1), 100);
+  const offset = Math.max(parseInt(c.req.query("offset") || "0", 10) || 0, 0);
 
   const conditions: string[] = [];
   const params: string[] = [];
@@ -33,12 +32,12 @@ cardsRoute.get("/", async (c) => {
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const countResult = await c.env.DB.prepare(
-    `SELECT COUNT(*) as total FROM cards c ${where}`
+    `SELECT COUNT(*) as count FROM cards c ${where}`
   )
     .bind(...params)
-    .first<{ total: number }>();
+    .first<{ count: number }>();
 
-  const total = countResult?.total ?? 0;
+  const total = countResult?.count ?? 0;
 
   const rows = await c.env.DB.prepare(
     `SELECT c.id, c.local_id, c.name, c.image, c.category, c.rarity, c.hp,
@@ -52,14 +51,13 @@ cardsRoute.get("/", async (c) => {
     .bind(...params, limit, offset)
     .all();
 
+  // Card data is static — cache aggressively
+  c.header("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
+
   return c.json({
     data: rows.results,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-    },
+    total,
+    hasMore: offset + rows.results.length < total,
   });
 });
 
@@ -79,6 +77,8 @@ cardsRoute.get("/:id", async (c) => {
   if (!card) {
     return c.json({ error: "Card not found" }, 404);
   }
+
+  c.header("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
 
   return c.json({ data: card });
 });
