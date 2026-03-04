@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@builder.io/qwik": "^1.12",
-    "@builder.io/qwik-city": "^1.12"
+    "@builder.io/qwik-city": "^1.12",
+    "pixi.js": "^8.16.0"
   },
   "devDependencies": {
     "@luminous/typescript-config": "workspace:*",
