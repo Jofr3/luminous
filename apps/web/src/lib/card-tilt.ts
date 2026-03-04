@@ -1,7 +1,7 @@
 import {
   Application,
   Sprite,
-  Assets,
+  Texture,
   Filter,
   GlProgram,
   UniformGroup,
@@ -41,11 +41,10 @@ const SPEC_FRAG = [
   "uniform float uTiltY;",
   "",
   "void main() {",
-  "  vec4 c = texture(uTexture, vTextureCoord);",
   "  vec2 lp = vec2(0.5 + uTiltX, 0.5 - uTiltY);",
   "  float d = distance(vTextureCoord, lp);",
   "  float spec = smoothstep(0.5, 0.0, d) * 0.15;",
-  "  finalColor = vec4(c.rgb + spec, c.a);",
+  "  finalColor = vec4(spec, spec, spec, spec);",
   "}",
 ].join("\n");
 
@@ -54,11 +53,9 @@ let canvas: HTMLCanvasElement | null = null;
 let sprite: Sprite | null = null;
 let specUniforms: UniformGroup | null = null;
 let specFilter: Filter | null = null;
-let gen = 0;
 
 let activeWrapper: HTMLElement | null = null;
 let activeCardItem: HTMLElement | null = null;
-let hiddenImg: HTMLElement | null = null;
 let hoverRaf = 0;
 let hoverPersp = 0;
 let tiltX = 0;
@@ -160,7 +157,7 @@ function render() {
   hoverRaf = requestAnimationFrame(render);
 }
 
-export async function startTilt(wrapper: HTMLElement, imgSrc: string) {
+export async function startTilt(wrapper: HTMLElement, _imgSrc: string) {
   if (!app) await init();
   if (!app || !canvas) return;
 
@@ -170,14 +167,12 @@ export async function startTilt(wrapper: HTMLElement, imgSrc: string) {
   cancelAnimationFrame(hoverRaf);
 
   if (activeCardItem && activeCardItem !== cardItem) {
-    if (hiddenImg) hiddenImg.style.visibility = "visible";
     if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
     startEaseBack(activeCardItem, tiltX, tiltY, hoverPersp);
   }
 
   cancelEaseBack(cardItem);
 
-  const thisGen = ++gen;
   activeWrapper = wrapper;
   activeCardItem = cardItem;
   tiltX = 0;
@@ -197,13 +192,8 @@ export async function startTilt(wrapper: HTMLElement, imgSrc: string) {
   canvas.style.height = "100%";
   wrapper.appendChild(canvas);
 
-  const texture = await Assets.load(imgSrc);
-  if (thisGen !== gen) return;
-
-  if (sprite) {
-    sprite.texture = texture;
-  } else {
-    sprite = new Sprite(texture);
+  if (!sprite) {
+    sprite = new Sprite(Texture.WHITE);
     sprite.filters = [specFilter!];
     app.stage.addChild(sprite);
   }
@@ -211,10 +201,6 @@ export async function startTilt(wrapper: HTMLElement, imgSrc: string) {
   sprite.position.set(0, 0);
   sprite.width = rect.width;
   sprite.height = rect.height;
-
-  const imgEl = wrapper.querySelector("img") as HTMLElement;
-  hiddenImg = imgEl;
-  if (hiddenImg) hiddenImg.style.visibility = "hidden";
 
   render();
 }
@@ -227,14 +213,8 @@ export function updateTilt(wrapper: HTMLElement, nx: number, ny: number) {
 
 export function stopTilt(wrapper: HTMLElement) {
   if (wrapper !== activeWrapper) return;
-  gen++;
 
   cancelAnimationFrame(hoverRaf);
-
-  if (hiddenImg) {
-    hiddenImg.style.visibility = "visible";
-    hiddenImg = null;
-  }
 
   if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
 

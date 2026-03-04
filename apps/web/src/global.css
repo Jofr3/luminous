@@ -108,6 +108,7 @@ img {
   border-radius: var(--radius);
   overflow: hidden;
   transition: border-color 0.15s;
+  transform: translateZ(0);
 }
 
 
