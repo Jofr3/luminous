@@ -39,11 +39,12 @@ const SPEC_FRAG = [
   "uniform sampler2D uTexture;",
   "uniform float uTiltX;",
   "uniform float uTiltY;",
+  "uniform float uIntensity;",
   "",
   "void main() {",
   "  vec2 lp = vec2(0.5 + uTiltX, 0.5 - uTiltY);",
   "  float d = distance(vTextureCoord, lp);",
-  "  float spec = smoothstep(0.5, 0.0, d) * 0.15;",
+  "  float spec = smoothstep(0.5, 0.0, d) * 0.15 * uIntensity;",
   "  finalColor = vec4(spec, spec, spec, spec);",
   "}",
 ].join("\n");
@@ -62,6 +63,8 @@ let tiltX = 0;
 let tiltY = 0;
 let goalX = 0;
 let goalY = 0;
+let intensity = 0;
+let releasing = false;
 
 interface EaseState {
   tiltX: number;
@@ -89,6 +92,7 @@ async function init() {
   specUniforms = new UniformGroup({
     uTiltX: { value: 0, type: "f32" },
     uTiltY: { value: 0, type: "f32" },
+    uIntensity: { value: 0, type: "f32" },
   });
 
   specFilter = new Filter({
@@ -147,10 +151,26 @@ function render() {
   tiltX += (goalX - tiltX) * 0.12;
   tiltY += (goalY - tiltY) * 0.12;
 
+  if (releasing) {
+    intensity += (0 - intensity) * 0.1;
+    if (intensity < 0.01) {
+      cancelAnimationFrame(hoverRaf);
+      if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+      startEaseBack(activeCardItem, tiltX, tiltY, hoverPersp);
+      activeWrapper = null;
+      activeCardItem = null;
+      releasing = false;
+      return;
+    }
+  } else {
+    intensity += (1 - intensity) * 0.12;
+  }
+
   applyTransform(activeCardItem, tiltX, tiltY, hoverPersp);
 
   specUniforms!.uniforms.uTiltX = tiltX;
   specUniforms!.uniforms.uTiltY = tiltY;
+  specUniforms!.uniforms.uIntensity = intensity;
 
   app.render();
 
@@ -179,6 +199,8 @@ export async function startTilt(wrapper: HTMLElement, _imgSrc: string) {
   tiltY = 0;
   goalX = 0;
   goalY = 0;
+  intensity = 0;
+  releasing = false;
 
   cardItem.style.zIndex = "10";
   cardItem.style.transform = "";
@@ -213,13 +235,7 @@ export function updateTilt(wrapper: HTMLElement, nx: number, ny: number) {
 
 export function stopTilt(wrapper: HTMLElement) {
   if (wrapper !== activeWrapper) return;
-
-  cancelAnimationFrame(hoverRaf);
-
-  if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
-
-  startEaseBack(activeCardItem!, tiltX, tiltY, hoverPersp);
-
-  activeWrapper = null;
-  activeCardItem = null;
+  releasing = true;
+  goalX = 0;
+  goalY = 0;
 }
