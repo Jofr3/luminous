@@ -14,7 +14,6 @@ export const CardItem = component$<CardItemProps>(({ card }) => {
       <div
         class="card-item__image-wrapper"
         onMouseEnter$={async (e: MouseEvent) => {
-          if (!src) return;
           const target = e.target as HTMLElement | null;
           const clientX = e.clientX;
           const clientY = e.clientY;
@@ -51,18 +50,14 @@ export const CardItem = component$<CardItemProps>(({ card }) => {
           await start;
         }}
       >
-        {src ? (
-          <img
-            src={src}
-            alt={card.name}
-            loading="lazy"
-            crossOrigin="anonymous"
-            width={245}
-            height={342}
-          />
-        ) : (
-          <div class="card-item__placeholder">No Image</div>
-        )}
+        <img
+          src={src}
+          alt={card.name}
+          loading="lazy"
+          crossOrigin="anonymous"
+          width={245}
+          height={342}
+        />
       </div>
     </div>
   );

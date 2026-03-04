@@ -142,10 +142,10 @@ cardsRoute.get("/", async (c) => {
     }
   }
 
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const filters = conditions.length > 0 ? ` AND ${conditions.join(" AND ")}` : "";
 
   const countResult = await c.env.DB.prepare(
-    `SELECT COUNT(*) as count FROM cards c ${where}`
+    `SELECT COUNT(*) as count FROM cards c WHERE c.image IS NOT NULL AND c.image != ''${filters}`
   )
     .bind(...params)
     .first<{ count: number }>();
@@ -157,7 +157,7 @@ cardsRoute.get("/", async (c) => {
             c.set_id, s.name as set_name
      FROM cards c
      LEFT JOIN sets s ON c.set_id = s.id
-     ${where}
+     WHERE c.image IS NOT NULL AND c.image != ''${filters}
      ORDER BY c.name ASC
      LIMIT ? OFFSET ?`
   )

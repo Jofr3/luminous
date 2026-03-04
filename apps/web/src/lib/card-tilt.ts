@@ -52,7 +52,7 @@ const PAD = 24;
 
 // ── Balatro constants ──────────────────────────────────────────────
 // game.lua:  G.exp_times.scale = math.exp(-60*real_dt)
-const EXP_SCALE_K = 60;
+const EXP_SCALE_K = 40;
 // game.lua:  G.exp_times.r = math.exp(-190*real_dt)
 const EXP_R_K = 190;
 // moveable.lua:  juice duration = 0.4s
