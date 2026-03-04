@@ -112,6 +112,7 @@ img {
 
 
 .card-item__image-wrapper {
+  position: relative;
   aspect-ratio: 245 / 342;
   background: var(--bg);
   display: flex;

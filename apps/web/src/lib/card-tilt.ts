@@ -43,7 +43,7 @@ const FRAG = [
   "  vec4 c = texture2D(u_tex, v_uv);",
   "  vec2 lp = vec2(0.5 + u_mouse.x * 0.5, 0.5 - u_mouse.y * 0.5);",
   "  float d = distance(v_uv, lp);",
-  "  float spec = smoothstep(0.5, 0.0, d) * 0.15 * u_hover;",
+  "  float spec = smoothstep(0.5, 0.0, d) * 0.08 * u_hover;",
   "  gl_FragColor = vec4(c.rgb + spec, c.a);",
   "}",
 ].join("\n");
@@ -123,8 +123,7 @@ function compile(type: number, src: string): WebGLShader | null {
 function init() {
   canvas = document.createElement("canvas");
   canvas.style.cssText =
-    "position:fixed;pointer-events:none;z-index:9999;display:none;";
-  document.body.appendChild(canvas);
+    "position:absolute;pointer-events:none;z-index:9999;display:none;";
 
   gl = canvas.getContext("webgl", { alpha: true })!;
   if (!gl) return;
@@ -219,10 +218,6 @@ function render(now: number) {
   // Delta time in seconds, capped at 1/20 (Balatro: math.min(1/20, real_dt))
   const dt = lastTime ? Math.min((now - lastTime) / 1000, 0.05) : 1 / 60;
   lastTime = now;
-
-  const rect = activeWrapper.getBoundingClientRect();
-  canvas.style.left = `${rect.left - PAD}px`;
-  canvas.style.top = `${rect.top - PAD}px`;
 
   // ── Hover: velocity-based easing (exp_times.scale) ───────────
   // game.lua: vel = exp*vel + (1-exp)*(target - current)
@@ -329,9 +324,10 @@ export async function startTilt(wrapper: HTMLElement, imgSrc: string) {
   canvas.height = h * dpr;
   canvas.style.width = `${w}px`;
   canvas.style.height = `${h}px`;
-  canvas.style.left = `${rect.left - PAD}px`;
-  canvas.style.top = `${rect.top - PAD}px`;
+  canvas.style.left = `${-PAD}px`;
+  canvas.style.top = `${-PAD}px`;
   canvas.style.display = "block";
+  wrapper.appendChild(canvas);
 
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.uniform2f(uScale, rect.width / w, rect.height / h);
