@@ -336,6 +336,10 @@ export async function startTilt(wrapper: HTMLElement, imgSrc: string) {
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.uniform2f(uScale, rect.width / w, rect.height / h);
 
+  // Clear stale frame from previous card before async texture load
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
   const imgEl = wrapper.querySelector("img") as HTMLImageElement | null;
   const tex = await loadTexture(imgSrc);
   if (thisGen !== gen) return;
