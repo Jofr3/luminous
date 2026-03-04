@@ -31,3 +31,17 @@ export interface SetSummary {
 export interface SetListResponse {
   data: SetSummary[];
 }
+
+export interface FilterOptions {
+  categories: string[];
+  rarities: string[];
+  stages: string[];
+  trainer_types: string[];
+  energy_types: string[];
+  types: string[];
+  weaknesses: string[];
+  resistances: string[];
+  retreats: number[];
+  hp: { min: number; max: number };
+  regulation_marks: string[];
+}

@@ -12,26 +12,72 @@ import {
   type DocumentHead,
 } from "@builder.io/qwik-city";
 import { CardGrid } from "~/components/card-grid";
+import { FilterSidebar } from "~/components/filter-sidebar";
 import { SearchBar } from "~/components/search-bar";
-import { fetchCards } from "~/lib/api";
-import type { CardListResponse, CardSummary } from "~/lib/types";
+import { fetchCards, fetchFilters } from "~/lib/api";
+import type {
+  CardListResponse,
+  CardSummary,
+  FilterOptions,
+  SetSummary,
+} from "~/lib/types";
 
 const MIN_BATCH = 20;
 const MAX_BATCH = 100;
 const DEFAULT_BATCH = 40;
 
+const API_URL = import.meta.env.PUBLIC_API_URL ?? "http://localhost:8787";
+
+/** All filter param keys that should be forwarded to the API */
+const FILTER_KEYS = [
+  "q",
+  "category",
+  "set",
+  "rarity",
+  "stage",
+  "trainer_type",
+  "energy_type",
+  "retreat",
+  "hp_min",
+  "hp_max",
+  "types",
+  "weakness",
+  "resistance",
+  "legal_standard",
+  "legal_expanded",
+] as const;
+
+function collectFilterParams(searchParams: URLSearchParams) {
+  const result: Record<string, string> = {};
+  for (const key of FILTER_KEYS) {
+    const val = searchParams.get(key);
+    if (val) result[key] = val;
+  }
+  return result;
+}
+
 export const useCardData = routeLoader$<CardListResponse>(
   async (requestEvent) => {
-    const q = requestEvent.query.get("q") || "";
-    const category = requestEvent.query.get("category") || "";
-    const set = requestEvent.query.get("set") || "";
-
-    return fetchCards({ q, category, set, limit: DEFAULT_BATCH, offset: 0 });
+    const params = collectFilterParams(requestEvent.url.searchParams);
+    return fetchCards({ ...params, limit: DEFAULT_BATCH, offset: 0 });
   },
 );
 
+export const useFilterOptions = routeLoader$<FilterOptions>(async () => {
+  return fetchFilters();
+});
+
+export const useSetsData = routeLoader$<SetSummary[]>(async () => {
+  const res = await fetch(`${API_URL}/api/sets`);
+  if (!res.ok) return [];
+  const json = await res.json();
+  return json.data ?? [];
+});
+
 export default component$(() => {
   const cardData = useCardData();
+  const filterOptions = useFilterOptions();
+  const setsData = useSetsData();
   const loc = useLocation();
 
   const store = useStore<{
@@ -64,15 +110,11 @@ export default component$(() => {
     if (store.loading || !store.hasMore) return;
     store.loading = true;
 
-    const q = loc.url.searchParams.get("q") || "";
-    const category = loc.url.searchParams.get("category") || "";
-    const set = loc.url.searchParams.get("set") || "";
+    const params = collectFilterParams(loc.url.searchParams);
 
     try {
       const res = await fetchCards({
-        q,
-        category,
-        set,
+        ...params,
         limit: batchSize,
         offset: store.offset,
       });
@@ -129,13 +171,26 @@ export default component$(() => {
   return (
     <div>
       <SearchBar />
-<CardGrid cards={store.cards} />
-      {store.loading && (
-        <div class="load-more-spinner">
-          <div class="spinner" />
-        </div>
-      )}
-      <div ref={sentinelRef} style={{ height: "1px" }} />
+      <div class="browse-layout">
+        <FilterSidebar
+          filterOptions={filterOptions.value}
+          sets={setsData.value}
+        />
+        <main class="browse-main">
+          <div class="browse-status">
+            <span class="browse-status__count">
+              {store.cards.length} of {store.total} cards
+            </span>
+          </div>
+          <CardGrid cards={store.cards} />
+          {store.loading && (
+            <div class="load-more-spinner">
+              <div class="spinner" />
+            </div>
+          )}
+          <div ref={sentinelRef} style={{ height: "1px" }} />
+        </main>
+      </div>
     </div>
   );
 });

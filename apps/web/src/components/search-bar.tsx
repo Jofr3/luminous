@@ -9,11 +9,14 @@ export const SearchBar = component$(() => {
   const selfNav = useSignal(false);
 
   const doSearch = $((value: string) => {
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(loc.url.searchParams.toString());
     const trimmed = value.trim();
     if (trimmed) {
       params.set("q", trimmed);
+    } else {
+      params.delete("q");
     }
+    params.delete("offset");
     selfNav.value = true;
     nav(`/?${params.toString()}`);
   });
