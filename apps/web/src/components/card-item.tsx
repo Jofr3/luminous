@@ -26,11 +26,11 @@ export const CardItem = component$<CardItemProps>(({ card }) => {
           ) as HTMLElement | null;
           if (!wrapper) return;
 
-          const setTiltFromPointer = (clientX: number, clientY: number) => {
+          const setTiltFromPointer = (cx: number, cy: number) => {
             const rect = wrapper.getBoundingClientRect();
-            const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
-            const ny = ((clientY - rect.top) / rect.height) * 2 - 1;
-            updateTilt(wrapper, nx, ny);
+            const nx = ((cx - rect.left) / rect.width) * 2 - 1;
+            const ny = ((cy - rect.top) / rect.height) * 2 - 1;
+            updateTilt(nx, ny);
           };
 
           const onMove = (ev: MouseEvent) => {
@@ -40,7 +40,7 @@ export const CardItem = component$<CardItemProps>(({ card }) => {
           const onLeave = () => {
             wrapper.removeEventListener("mousemove", onMove);
             wrapper.removeEventListener("mouseleave", onLeave);
-            stopTilt(wrapper);
+            stopTilt();
           };
 
           wrapper.addEventListener("mousemove", onMove);

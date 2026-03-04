@@ -1,241 +1,363 @@
-import {
-  Application,
-  Sprite,
-  Texture,
-  Filter,
-  GlProgram,
-  UniformGroup,
-} from "pixi.js";
+// Balatro-style card hover tilt using W-component perspective warp + juice.
+//
+// Ported from Balatro source:
+//   Shader:  resources/shaders/dissolve.fs / skew.fs (W-offset vertex warp)
+//   Juice:   engine/moveable.lua  juice_up() / move_juice()
+//   Easing:  game.lua  exp_times  (velocity-based exponential smoothing)
+//   Hover:   card.lua  Card:hover() → juice_up(0.05, 0.03), hover_tilt = 1
 
-const FILTER_VERT = [
-  "in vec2 aPosition;",
-  "out vec2 vTextureCoord;",
-  "",
-  "uniform vec4 uInputSize;",
-  "uniform vec4 uOutputFrame;",
-  "uniform vec4 uOutputTexture;",
-  "",
-  "vec4 filterVertexPosition(void) {",
-  "  vec2 position = aPosition * uOutputFrame.zw + uOutputFrame.xy;",
-  "  position.x = position.x * (2.0 / uOutputTexture.x) - 1.0;",
-  "  position.y = position.y * (2.0 * uOutputTexture.z / uOutputTexture.y) - uOutputTexture.z;",
-  "  return vec4(position, 0.0, 1.0);",
-  "}",
-  "",
-  "vec2 filterTextureCoord(void) {",
-  "  return aPosition * (uOutputFrame.zw * uInputSize.zw);",
-  "}",
-  "",
-  "void main(void) {",
-  "  gl_Position = filterVertexPosition();",
-  "  vTextureCoord = filterTextureCoord();",
-  "}",
-].join("\n");
-
-const SPEC_FRAG = [
-  "in vec2 vTextureCoord;",
-  "out vec4 finalColor;",
-  "",
-  "uniform sampler2D uTexture;",
-  "uniform float uTiltX;",
-  "uniform float uTiltY;",
-  "uniform float uIntensity;",
-  "",
+const VERT = [
+  "precision mediump float;",
+  "attribute vec2 a_pos;",
+  "varying vec2 v_uv;",
+  "uniform vec2 u_mouse;",
+  "uniform float u_hover;",
+  "uniform vec2 u_scale;",
+  "uniform float u_juice_s;",
+  "uniform float u_juice_r;",
   "void main() {",
-  "  vec2 lp = vec2(0.5 + uTiltX, 0.5 - uTiltY);",
-  "  float d = distance(vTextureCoord, lp);",
-  "  float spec = smoothstep(0.5, 0.0, d) * 0.15 * uIntensity;",
-  "  finalColor = vec4(spec, spec, spec, spec);",
+  "  v_uv = a_pos * 0.5 + 0.5;",
+  "  v_uv.y = 1.0 - v_uv.y;",
+  // Scale: base + hover zoom (+5%) + juice oscillation
+  "  vec2 pos = a_pos * u_scale * (1.0 + 0.05 * u_hover + u_juice_s);",
+  // Juice rotation (in-plane wobble)
+  "  float cr = cos(u_juice_r); float sr = sin(u_juice_r);",
+  "  pos = vec2(cr * pos.x - sr * pos.y, sr * pos.x + cr * pos.y);",
+  // Perspective warp via W (dissolve.fs / skew.fs)
+  "  float mid = length(a_pos) * 0.35;",
+  "  vec2 moff = a_pos - u_mouse;",
+  "  float off2 = dot(moff, moff);",
+  "  float w = max(0.5, 1.0 + 0.7 * (-0.03 - 0.3 * max(0.0, 0.3 - mid))",
+  "            * u_hover * off2 / (2.0 - mid));",
+  "  gl_Position = vec4(pos, 0.0, w);",
   "}",
 ].join("\n");
 
-let app: Application | null = null;
+const FRAG = [
+  "precision mediump float;",
+  "varying vec2 v_uv;",
+  "uniform sampler2D u_tex;",
+  "uniform vec2 u_mouse;",
+  "uniform float u_hover;",
+  "void main() {",
+  "  vec4 c = texture2D(u_tex, v_uv);",
+  "  vec2 lp = vec2(0.5 + u_mouse.x * 0.5, 0.5 - u_mouse.y * 0.5);",
+  "  float d = distance(v_uv, lp);",
+  "  float spec = smoothstep(0.5, 0.0, d) * 0.15 * u_hover;",
+  "  gl_FragColor = vec4(c.rgb + spec, c.a);",
+  "}",
+].join("\n");
+
+const PAD = 24;
+
+// ── Balatro constants ──────────────────────────────────────────────
+// game.lua:  G.exp_times.scale = math.exp(-60*real_dt)
+const EXP_SCALE_K = 60;
+// game.lua:  G.exp_times.r = math.exp(-190*real_dt)
+const EXP_R_K = 190;
+// moveable.lua:  juice duration = 0.4s
+const JUICE_DUR = 0.4;
+// moveable.lua:  scale oscillation freq 50.8, rotation 40.8
+const JUICE_SCALE_HZ = 50.8;
+const JUICE_R_HZ = 40.8;
+
+// ── GL state ───────────────────────────────────────────────────────
 let canvas: HTMLCanvasElement | null = null;
-let sprite: Sprite | null = null;
-let specUniforms: UniformGroup | null = null;
-let specFilter: Filter | null = null;
+let gl: WebGLRenderingContext | null = null;
+let uMouse: WebGLUniformLocation | null = null;
+let uHover: WebGLUniformLocation | null = null;
+let uScale: WebGLUniformLocation | null = null;
+let uJuiceS: WebGLUniformLocation | null = null;
+let uJuiceR: WebGLUniformLocation | null = null;
+let texCache = new Map<string, WebGLTexture>();
 
+// ── Animation state ────────────────────────────────────────────────
+let raf = 0;
+let gen = 0;
+let active = false;
+let lastTime = 0;
+
+// Mouse (tracked directly, no easing — Balatro does the same)
+let mouseX = 0;
+let mouseY = 0;
+
+// Hover magnitude — velocity-based easing matching exp_times.scale
+let hover = 0;
+let hoverGoal = 0;
+let hoverVel = 0;
+
+// Juice — damped sinusoidal pop on hover start
+// card.lua:  Card:juice_up(0.05, 0.03)
+//   → Card override:  scale = 0.05*0.4 = 0.02,  rot = 0.4*±0.03 = ±0.012
+//   → Moveable:  VT.scale = 1 - 0.6*amount  (initial pop-down)
+// move_juice:  scale = amt * sin(50.8*t) * (remaining³)
+//              r     = amt * sin(40.8*t) * (remaining²)
+let juiceActive = false;
+let juiceTime = 0;
+let juiceScaleAmt = 0;
+let juiceRAmt = 0;
+let juiceS = 0; // current juice scale offset
+let juiceR = 0; // current juice rotation (radians)
+// Velocity-smoothed juice values (fed through exp_times easing)
+let vtJuiceS = 0;
+let vtJuiceSVel = 0;
+let vtJuiceR = 0;
+let vtJuiceRVel = 0;
+
+let hiddenImg: HTMLElement | null = null;
 let activeWrapper: HTMLElement | null = null;
-let activeCardItem: HTMLElement | null = null;
-let hoverRaf = 0;
-let hoverPersp = 0;
-let tiltX = 0;
-let tiltY = 0;
-let goalX = 0;
-let goalY = 0;
-let intensity = 0;
-let releasing = false;
 
-interface EaseState {
-  tiltX: number;
-  tiltY: number;
-  persp: number;
-  raf: number;
+function compile(type: number, src: string): WebGLShader | null {
+  const s = gl!.createShader(type);
+  if (!s) return null;
+  gl!.shaderSource(s, src);
+  gl!.compileShader(s);
+  if (!gl!.getShaderParameter(s, gl!.COMPILE_STATUS)) {
+    console.error("Shader error:", gl!.getShaderInfoLog(s));
+    gl!.deleteShader(s);
+    return null;
+  }
+  return s;
 }
-const easeStates = new WeakMap<HTMLElement, EaseState>();
 
-async function init() {
-  app = new Application();
-  await app.init({
-    backgroundAlpha: 0,
-    antialias: true,
-    preference: "webgl",
-    resolution: window.devicePixelRatio || 1,
-  });
-
-  canvas = app.canvas as HTMLCanvasElement;
+function init() {
+  canvas = document.createElement("canvas");
   canvas.style.cssText =
-    "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;";
+    "position:fixed;pointer-events:none;z-index:9999;display:none;";
+  document.body.appendChild(canvas);
 
-  app.ticker.stop();
+  gl = canvas.getContext("webgl", { alpha: true })!;
+  if (!gl) return;
 
-  specUniforms = new UniformGroup({
-    uTiltX: { value: 0, type: "f32" },
-    uTiltY: { value: 0, type: "f32" },
-    uIntensity: { value: 0, type: "f32" },
-  });
+  const vs = compile(gl.VERTEX_SHADER, VERT);
+  const fs = compile(gl.FRAGMENT_SHADER, FRAG);
+  if (!vs || !fs) return;
 
-  specFilter = new Filter({
-    glProgram: GlProgram.from({
-      vertex: FILTER_VERT,
-      fragment: SPEC_FRAG,
-      name: "specular-filter",
-    }),
-    resources: { specUniforms },
-  });
+  const prog = gl.createProgram()!;
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    console.error("Link error:", gl.getProgramInfoLog(prog));
+    return;
+  }
+
+  gl.useProgram(prog);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(
+    gl.ARRAY_BUFFER,
+    new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+    gl.STATIC_DRAW,
+  );
+
+  const aPos = gl.getAttribLocation(prog, "a_pos");
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  uMouse = gl.getUniformLocation(prog, "u_mouse");
+  uHover = gl.getUniformLocation(prog, "u_hover");
+  uScale = gl.getUniformLocation(prog, "u_scale");
+  uJuiceS = gl.getUniformLocation(prog, "u_juice_s");
+  uJuiceR = gl.getUniformLocation(prog, "u_juice_r");
+  gl.uniform1i(gl.getUniformLocation(prog, "u_tex"), 0);
+
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 }
 
-function applyTransform(el: HTMLElement, tx: number, ty: number, persp: number) {
-  const degY = (tx * 180) / Math.PI;
-  const degX = (-ty * 180) / Math.PI;
-  el.style.transform = `perspective(${persp}px) rotateY(${degY}deg) rotateX(${degX}deg)`;
+function makeTexture(key: string, source: TexImageSource): WebGLTexture {
+  const cached = texCache.get(key);
+  if (cached) return cached;
+
+  const tex = gl!.createTexture()!;
+  gl!.bindTexture(gl!.TEXTURE_2D, tex);
+  gl!.texImage2D(
+    gl!.TEXTURE_2D,
+    0,
+    gl!.RGBA,
+    gl!.RGBA,
+    gl!.UNSIGNED_BYTE,
+    source,
+  );
+  gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_WRAP_S, gl!.CLAMP_TO_EDGE);
+  gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_WRAP_T, gl!.CLAMP_TO_EDGE);
+  gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_MIN_FILTER, gl!.LINEAR);
+  gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_MAG_FILTER, gl!.LINEAR);
+  texCache.set(key, tex);
+  return tex;
 }
 
-function cancelEaseBack(cardItem: HTMLElement) {
-  const state = easeStates.get(cardItem);
-  if (!state) return;
-  cancelAnimationFrame(state.raf);
-  easeStates.delete(cardItem);
-  cardItem.style.transform = "";
-  cardItem.style.zIndex = "";
+async function loadTexture(src: string): Promise<WebGLTexture> {
+  const cached = texCache.get(src);
+  if (cached) return cached;
+
+  const res = await fetch(src);
+  const blob = await res.blob();
+  const bitmap = await createImageBitmap(blob);
+  const tex = makeTexture(src, bitmap);
+  bitmap.close();
+  return tex;
 }
 
-function startEaseBack(cardItem: HTMLElement, tx: number, ty: number, persp: number) {
-  cancelEaseBack(cardItem);
+function cleanup() {
+  active = false;
+  activeWrapper = null;
+  cancelAnimationFrame(raf);
+  if (canvas) canvas.style.display = "none";
+  if (hiddenImg) {
+    hiddenImg.style.visibility = "visible";
+    hiddenImg = null;
+  }
+}
 
-  const state: EaseState = { tiltX: tx, tiltY: ty, persp, raf: 0 };
-  easeStates.set(cardItem, state);
-  cardItem.style.zIndex = "10";
+function render(now: number) {
+  if (!gl || !canvas || !activeWrapper) return;
 
-  function animate() {
-    state.tiltX += (0 - state.tiltX) * 0.08;
-    state.tiltY += (0 - state.tiltY) * 0.08;
+  // Delta time in seconds, capped at 1/20 (Balatro: math.min(1/20, real_dt))
+  const dt = lastTime ? Math.min((now - lastTime) / 1000, 0.05) : 1 / 60;
+  lastTime = now;
 
-    if (Math.abs(state.tiltX) < 0.001 && Math.abs(state.tiltY) < 0.001) {
-      cardItem.style.transform = "";
-      cardItem.style.zIndex = "";
-      easeStates.delete(cardItem);
-      return;
+  const rect = activeWrapper.getBoundingClientRect();
+  canvas.style.left = `${rect.left - PAD}px`;
+  canvas.style.top = `${rect.top - PAD}px`;
+
+  // ── Hover: velocity-based easing (exp_times.scale) ───────────
+  // game.lua: vel = exp*vel + (1-exp)*(target - current)
+  const expS = Math.exp(-EXP_SCALE_K * dt);
+  hoverVel = expS * hoverVel + (1 - expS) * (hoverGoal - hover);
+  hover = Math.max(0, hover + hoverVel);
+
+  // ── Juice: damped sinusoidal oscillation ─────────────────────
+  // moveable.lua: move_juice()
+  if (juiceActive) {
+    juiceTime += dt;
+    if (juiceTime >= JUICE_DUR) {
+      juiceActive = false;
+      juiceS = 0;
+      juiceR = 0;
+    } else {
+      const remaining = (JUICE_DUR - juiceTime) / JUICE_DUR;
+      juiceS =
+        juiceScaleAmt *
+        Math.sin(JUICE_SCALE_HZ * juiceTime) *
+        remaining * remaining * remaining; // cubic decay
+      // move_r uses juice.r * 2
+      juiceR =
+        juiceRAmt *
+        2 *
+        Math.sin(JUICE_R_HZ * juiceTime) *
+        remaining * remaining; // quadratic decay
     }
-
-    applyTransform(cardItem, state.tiltX, state.tiltY, state.persp);
-    state.raf = requestAnimationFrame(animate);
   }
 
-  animate();
+  // Ease juice through velocity smoothing (like move_scale / move_r)
+  vtJuiceSVel = expS * vtJuiceSVel + (1 - expS) * (juiceS - vtJuiceS);
+  vtJuiceS += vtJuiceSVel;
+
+  const expR = Math.exp(-EXP_R_K * dt);
+  vtJuiceRVel = expR * vtJuiceRVel + (1 - expR) * (juiceR - vtJuiceR);
+  vtJuiceR += vtJuiceRVel;
+
+  // ── Cleanup when fully released ──────────────────────────────
+  if (
+    hoverGoal === 0 &&
+    hover <= 0 &&
+    Math.abs(hoverVel) < 0.001 &&
+    !juiceActive &&
+    Math.abs(vtJuiceS) < 0.0001
+  ) {
+    cleanup();
+    return;
+  }
+
+  // ── Draw ─────────────────────────────────────────────────────
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.uniform2f(uMouse, mouseX, mouseY);
+  gl.uniform1f(uHover, hover);
+  gl.uniform1f(uJuiceS, vtJuiceS);
+  gl.uniform1f(uJuiceR, vtJuiceR);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  raf = requestAnimationFrame(render);
 }
 
-function render() {
-  if (!app || !canvas || !activeWrapper || !activeCardItem) return;
+export async function startTilt(wrapper: HTMLElement, imgSrc: string) {
+  if (!gl) init();
+  if (!gl || !canvas) return;
 
-  tiltX += (goalX - tiltX) * 0.12;
-  tiltY += (goalY - tiltY) * 0.12;
-
-  if (releasing) {
-    intensity += (0 - intensity) * 0.1;
-    if (intensity < 0.01) {
-      cancelAnimationFrame(hoverRaf);
-      if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
-      startEaseBack(activeCardItem, tiltX, tiltY, hoverPersp);
-      activeWrapper = null;
-      activeCardItem = null;
-      releasing = false;
-      return;
-    }
-  } else {
-    intensity += (1 - intensity) * 0.12;
+  cancelAnimationFrame(raf);
+  if (hiddenImg) {
+    hiddenImg.style.visibility = "visible";
+    hiddenImg = null;
   }
-
-  applyTransform(activeCardItem, tiltX, tiltY, hoverPersp);
-
-  specUniforms!.uniforms.uTiltX = tiltX;
-  specUniforms!.uniforms.uTiltY = tiltY;
-  specUniforms!.uniforms.uIntensity = intensity;
-
-  app.render();
-
-  hoverRaf = requestAnimationFrame(render);
-}
-
-export async function startTilt(wrapper: HTMLElement, _imgSrc: string) {
-  if (!app) await init();
-  if (!app || !canvas) return;
-
-  const cardItem = wrapper.closest(".card-item") as HTMLElement;
-  if (!cardItem) return;
-
-  cancelAnimationFrame(hoverRaf);
-
-  if (activeCardItem && activeCardItem !== cardItem) {
-    if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
-    startEaseBack(activeCardItem, tiltX, tiltY, hoverPersp);
-  }
-
-  cancelEaseBack(cardItem);
-
+  const thisGen = ++gen;
+  active = true;
   activeWrapper = wrapper;
-  activeCardItem = cardItem;
-  tiltX = 0;
-  tiltY = 0;
-  goalX = 0;
-  goalY = 0;
-  intensity = 0;
-  releasing = false;
+  mouseX = 0;
+  mouseY = 0;
 
-  cardItem.style.zIndex = "10";
-  cardItem.style.transform = "";
+  // Balatro snaps hover_tilt to 1 instantly on hover
+  hover = 1;
+  hoverGoal = 1;
+  hoverVel = 0;
 
-  wrapper.style.position = "relative";
+  // ── Trigger juice (Card:juice_up(0.05, 0.03)) ───────────────
+  // card.lua override: scale = 0.05*0.4 = 0.02, rot = 0.4*±0.03 = ±0.012
+  juiceActive = true;
+  juiceTime = 0;
+  juiceScaleAmt = 0.05 * 0.4; // 0.02
+  juiceRAmt = 0.4 * 0.03 * (Math.random() > 0.5 ? 1 : -1); // ±0.012
+  juiceS = 0;
+  juiceR = 0;
+
+  // Initial scale pop-down (moveable.lua: VT.scale = 1 - 0.6*amount)
+  vtJuiceS = -0.6 * juiceScaleAmt; // -0.012
+  vtJuiceSVel = 0;
+  vtJuiceR = 0;
+  vtJuiceRVel = 0;
+
   const rect = wrapper.getBoundingClientRect();
-  hoverPersp = 3 * rect.width;
+  const dpr = window.devicePixelRatio || 1;
+  const w = rect.width + PAD * 2;
+  const h = rect.height + PAD * 2;
 
-  app.renderer.resize(rect.width, rect.height);
-  canvas.style.width = "100%";
-  canvas.style.height = "100%";
-  wrapper.appendChild(canvas);
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${h}px`;
+  canvas.style.left = `${rect.left - PAD}px`;
+  canvas.style.top = `${rect.top - PAD}px`;
+  canvas.style.display = "block";
 
-  if (!sprite) {
-    sprite = new Sprite(Texture.WHITE);
-    sprite.filters = [specFilter!];
-    app.stage.addChild(sprite);
-  }
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.uniform2f(uScale, rect.width / w, rect.height / h);
 
-  sprite.position.set(0, 0);
-  sprite.width = rect.width;
-  sprite.height = rect.height;
+  const imgEl = wrapper.querySelector("img") as HTMLImageElement | null;
+  const tex = await loadTexture(imgSrc);
+  if (thisGen !== gen) return;
 
-  render();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+
+  hiddenImg = imgEl;
+  if (hiddenImg) hiddenImg.style.visibility = "hidden";
+
+  lastTime = performance.now();
+  raf = requestAnimationFrame(render);
 }
 
-export function updateTilt(wrapper: HTMLElement, nx: number, ny: number) {
-  if (wrapper !== activeWrapper) return;
-  goalX = -nx * 0.25;
-  goalY = ny * 0.25;
+// Balatro tracks mouse directly — no easing on position
+export function updateTilt(nx: number, ny: number) {
+  mouseX = nx;
+  mouseY = ny;
 }
 
-export function stopTilt(wrapper: HTMLElement) {
-  if (wrapper !== activeWrapper) return;
-  releasing = true;
-  goalX = 0;
-  goalY = 0;
+export function stopTilt() {
+  gen++;
+  // Balatro snaps hover_tilt to 0; we ease it out via velocity smoothing
+  hoverGoal = 0;
 }
