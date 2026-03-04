@@ -154,6 +154,7 @@ cardsRoute.get("/", async (c) => {
 
   const rows = await c.env.DB.prepare(
     `SELECT c.id, c.local_id, c.name, c.image, c.category, c.rarity, c.hp,
+            c.stage, c.trainer_type, c.energy_type, c.suffix,
             c.set_id, s.name as set_name
      FROM cards c
      LEFT JOIN sets s ON c.set_id = s.id

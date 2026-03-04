@@ -1,4 +1,4 @@
-import type { CardListResponse, FilterOptions } from "./types";
+import type { CardDetail, CardListResponse, FilterOptions } from "./types";
 
 export const API_URL = import.meta.env.PUBLIC_API_URL ?? "http://localhost:8787";
 
@@ -8,6 +8,7 @@ export function imageUrl(key: string | null): string | null {
 }
 
 const cache = new Map<string, { data: CardListResponse; ts: number }>();
+const cardDetailCache = new Map<string, { data: CardDetail; ts: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export async function fetchCards(params: {
@@ -79,4 +80,23 @@ export async function fetchFilters(): Promise<FilterOptions> {
   filtersCache.data = data;
   filtersCache.ts = performance.now();
   return data;
+}
+
+export async function fetchCardById(id: string): Promise<CardDetail> {
+  const key = id.trim();
+  if (!key) throw new Error("Card id is required");
+
+  const cached = cardDetailCache.get(key);
+  if (cached && performance.now() - cached.ts < CACHE_TTL) {
+    return cached.data;
+  }
+
+  const res = await fetch(`${API_URL}/api/cards/${encodeURIComponent(key)}`);
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  const payload = await res.json() as { data: CardDetail };
+  cardDetailCache.set(key, { data: payload.data, ts: performance.now() });
+  return payload.data;
 }
