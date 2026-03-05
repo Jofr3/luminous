@@ -1,4 +1,4 @@
-import { $, component$, useStore } from "@builder.io/qwik";
+import { $, component$, useStore, useVisibleTask$ } from "@builder.io/qwik";
 import { type DocumentHead } from "@builder.io/qwik-city";
 import { fetchCardById, fetchCards, imageUrl } from "~/lib/api";
 import {
@@ -9,7 +9,6 @@ import {
 } from "~/lib/simulator";
 import type { CardDetail, CardSummary } from "~/lib/types";
 
-type RulesMode = "strict" | "manual";
 type Phase = "idle" | "setup" | "playing";
 type Zone = "hand" | "active" | "bench" | "prize";
 
@@ -50,7 +49,6 @@ interface PlayerBoard {
 }
 
 interface SimulatorStore {
-  rulesMode: RulesMode;
   phase: Phase;
   winner: string | null;
   coinFlipResult: "Heads" | "Tails" | null;
@@ -69,6 +67,8 @@ interface SimulatorStore {
   nameQueryCache: Record<string, CardSummary | null>;
   logs: string[];
   players: [PlayerBoard, PlayerBoard];
+  showDecklists: boolean;
+  showGameLog: boolean;
 }
 
 const DEFAULT_DECKLIST = [
@@ -358,15 +358,13 @@ function applyAutoKnockoutCheck(store: SimulatorStore): void {
 function canAct(store: SimulatorStore, playerIdx: 0 | 1, action: string): boolean {
   if (store.winner) return false;
 
-  if (store.rulesMode === "manual") return true;
-
   if (store.phase !== "playing") {
     appendLog(store, `Cannot ${action} before setup is finalized.`);
     return false;
   }
 
   if (store.currentTurn !== playerIdx) {
-    appendLog(store, `Strict mode: only current player can ${action}.`);
+    appendLog(store, `only current player can ${action}.`);
     return false;
   }
 
@@ -400,7 +398,6 @@ async function fetchDetailCached(store: SimulatorStore, id: string): Promise<Car
 
 export default component$(() => {
   const store = useStore<SimulatorStore>({
-    rulesMode: "strict",
     phase: "idle",
     winner: null,
     coinFlipResult: null,
@@ -418,13 +415,14 @@ export default component$(() => {
     detailCache: {},
     nameQueryCache: {},
     logs: [
-      "Load two 60-card decklists (format: '4 Card Name' per line).",
-      "Run setup (with mulligans), place Active/Bench, then start playing.",
+      "Loading decklists and setting up the game...",
     ],
     players: [createEmptyPlayer("Player 1"), createEmptyPlayer("Player 2")],
+    showDecklists: false,
+    showGameLog: false,
   });
 
-  const startSetup = $(async () => {
+  const autoSetup = $(async () => {
     store.loading = true;
     try {
       const deck1 = await buildDeckFromInput(store, store.deckInput1, "Player 1 Deck");
@@ -449,36 +447,40 @@ export default component$(() => {
       p2.hand.push(...drawFromDeck(p2, bonus2));
 
       store.players = [p1, p2];
-      store.phase = "setup";
       store.winner = null;
       store.coinFlipResult = null;
-      store.currentTurn = 0;
-      store.turnNumber = 1;
-      store.turnDrawDone = false;
       store.revealedPrizeUids = [[], []];
       store.selectedPrizeUid = [null, null];
       store.selectedHandUid = [null, null];
+      store.currentTurn = 0;
+      store.phase = "setup";
 
-      appendLog(store, `Setup created. Mulligans -> P1: ${p1.mulligans}, P2: ${p2.mulligans}.`);
-      appendLog(store, "Choose Active and Bench for each player, then click Finalize Setup.");
+      appendLog(store, `Mulligans -> P1: ${p1.mulligans}, P2: ${p2.mulligans}.`);
+      appendLog(store, `${p1.name}: place your Active Pokemon (required) and Bench, then click Ready.`);
     } finally {
       store.loading = false;
     }
   });
 
-  const finalizeSetup = $(() => {
+  const confirmSetup = $(() => {
     if (store.phase !== "setup") return;
 
-    if (!store.players[0].active || !store.players[1].active) {
-      appendLog(store, "Both players must have an Active Pokemon before finalizing setup.");
+    const player = store.players[store.currentTurn];
+    if (!player.active) {
+      appendLog(store, `${player.name} must place an Active Pokemon before continuing.`);
       return;
     }
 
+    if (store.currentTurn === 0) {
+      store.currentTurn = 1;
+      appendLog(store, `${store.players[0].name} is ready.`);
+      appendLog(store, `${store.players[1].name}: place your Active Pokemon (required) and Bench, then click Ready.`);
+      return;
+    }
+
+    // Both players ready — finalize
     for (const p of store.players) {
       p.prizes = drawFromDeck(p, 6);
-      if (p.prizes.length < 6) {
-        appendLog(store, `${p.name} does not have enough cards to set 6 Prize cards.`);
-      }
       p.energyAttachedThisTurn = false;
     }
 
@@ -489,16 +491,22 @@ export default component$(() => {
     store.turnDrawDone = false;
     store.phase = "playing";
 
-    appendLog(
-      store,
-      `Coin flip: ${store.coinFlipResult}. ${store.players[store.firstPlayer].name} goes first.`,
-    );
-    appendLog(store, "Strict mode reminder: first player cannot attack on turn 1.");
+    appendLog(store, `Coin flip: ${store.coinFlipResult}. ${store.players[store.firstPlayer].name} goes first.`);
+    appendLog(store, "First player cannot attack on turn 1.");
+
+    // Auto-draw for first player
+    const firstP = store.players[store.firstPlayer];
+    const drawn = drawFromDeck(firstP, 1);
+    if (drawn.length > 0) {
+      firstP.hand.push(...drawn);
+      store.turnDrawDone = true;
+      appendLog(store, `${firstP.name} drew a card.`);
+    }
   });
 
-  const toggleRulesMode = $(() => {
-    store.rulesMode = store.rulesMode === "strict" ? "manual" : "strict";
-    appendLog(store, `Rules mode switched to ${store.rulesMode}.`);
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(() => {
+    autoSetup();
   });
 
   const selectHandCard = $((playerIdx: 0 | 1, uid: string) => {
@@ -533,10 +541,6 @@ export default component$(() => {
     }
 
     if (store.phase === "playing" && !canAct(store, playerIdx, "bench a Pokemon")) return;
-    if (store.rulesMode === "strict" && store.phase === "playing" && !store.turnDrawDone) {
-      appendLog(store, "Strict mode: draw first before actions.");
-      return;
-    }
 
     const selected = getSelectedHandCard(player, store.selectedHandUid[playerIdx]);
     if (!selected || !isBasicPokemon(selected.card)) {
@@ -563,43 +567,12 @@ export default component$(() => {
     appendLog(store, `${player.name} discarded ${card.card.name}.`);
   });
 
-  const drawCard = $((playerIdx: 0 | 1) => {
-    if (store.phase !== "playing") {
-      appendLog(store, "Draw is available during playing phase.");
-      return;
-    }
-
-    if (!canAct(store, playerIdx, "draw")) return;
-
-    const player = store.players[playerIdx];
-
-    if (store.rulesMode === "strict" && store.turnDrawDone) {
-      appendLog(store, "Strict mode: you already drew this turn.");
-      return;
-    }
-
-    const drawn = drawFromDeck(player, 1);
-    if (drawn.length === 0) {
-      store.winner = store.players[(playerIdx === 0 ? 1 : 0) as 0 | 1].name;
-      appendLog(store, `${player.name} cannot draw at turn start and loses.`);
-      return;
-    }
-
-    store.turnDrawDone = true;
-    appendLog(store, `${player.name} drew ${drawn[0].card.name}.`);
-  });
-
   const attachSelectedEnergyTo = $((playerIdx: 0 | 1, target: "active" | number) => {
     if (store.phase !== "playing") return;
     if (!canAct(store, playerIdx, "attach Energy")) return;
 
-    if (store.rulesMode === "strict" && !store.turnDrawDone) {
-      appendLog(store, "Strict mode: draw first before actions.");
-      return;
-    }
-
     const player = store.players[playerIdx];
-    if (store.rulesMode === "strict" && player.energyAttachedThisTurn) {
+    if (player.energyAttachedThisTurn) {
       appendLog(store, `${player.name} already manually attached Energy this turn.`);
       return;
     }
@@ -678,15 +651,9 @@ export default component$(() => {
 
     if (!canAct(store, attackerIdx, "attack")) return;
 
-    if (store.rulesMode === "strict") {
-      if (!store.turnDrawDone) {
-        appendLog(store, "Strict mode: draw first before attacking.");
-        return;
-      }
-      if (store.turnNumber === 1 && attackerIdx === store.firstPlayer) {
-        appendLog(store, "Strict mode: first player cannot attack on turn 1.");
-        return;
-      }
+    if (store.turnNumber === 1 && attackerIdx === store.firstPlayer) {
+      appendLog(store, "First player cannot attack on turn 1.");
+      return;
     }
 
     const attacker = store.players[attackerIdx];
@@ -736,6 +703,17 @@ export default component$(() => {
     store.turnDrawDone = false;
     store.players[next].energyAttachedThisTurn = false;
     appendLog(store, `${store.players[next].name} turn.`);
+
+    const player = store.players[next];
+    const drawn = drawFromDeck(player, 1);
+    if (drawn.length === 0) {
+      store.winner = store.players[(next === 0 ? 1 : 0) as 0 | 1].name;
+      appendLog(store, `${player.name} cannot draw at turn start and loses.`);
+      return;
+    }
+    player.hand.push(...drawn);
+    store.turnDrawDone = true;
+    appendLog(store, `${player.name} drew a card.`);
   });
 
   const selectPrize = $((playerIdx: 0 | 1, uid: string) => {
@@ -812,7 +790,7 @@ export default component$(() => {
         sourcePlayer.hand.push(card);
         return;
       }
-      if (store.rulesMode === "strict" && store.phase === "playing" && targetPlayer.energyAttachedThisTurn) {
+      if (store.phase === "playing" && targetPlayer.energyAttachedThisTurn) {
         sourcePlayer.hand.push(card);
         appendLog(store, `${targetPlayer.name} already attached Energy this turn.`);
         return;
@@ -858,6 +836,55 @@ export default component$(() => {
     appendLog(store, `${targetPlayer.name} benched ${card.card.name} via drag-and-drop.`);
   });
 
+  const onDropBenchSlot = $((ev: DragEvent, targetPlayerIdx: 0 | 1, benchIdx: number) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const payload = readDragPayload(ev);
+    if (!payload || payload.playerIdx !== targetPlayerIdx) return;
+
+    const targetPlayer = store.players[targetPlayerIdx];
+    const benchSlot = targetPlayer.bench[benchIdx];
+    if (!benchSlot) return;
+
+    // Hand → bench slot
+    if (payload.zone === "hand") {
+      const card = removeHandCard(targetPlayer, payload.uid);
+      if (!card) return;
+
+      // Energy attachment
+      if (card.card.category === "Energy") {
+        if (store.phase === "playing" && !canAct(store, targetPlayerIdx, "attach Energy")) {
+          targetPlayer.hand.push(card);
+          return;
+        }
+        if (store.phase === "playing" && targetPlayer.energyAttachedThisTurn) {
+          targetPlayer.hand.push(card);
+          appendLog(store, `${targetPlayer.name} already attached Energy this turn.`);
+          return;
+        }
+        benchSlot.attached.push(card);
+        if (store.phase === "playing") targetPlayer.energyAttachedThisTurn = true;
+        store.selectedHandUid[targetPlayerIdx] = null;
+        appendLog(store, `${targetPlayer.name} attached ${card.card.name} to Benched ${benchSlot.base.card.name}.`);
+        return;
+      }
+
+      // Not energy — put it back
+      targetPlayer.hand.push(card);
+      return;
+    }
+
+    // Bench → bench slot: swap positions
+    if (payload.zone === "bench" && payload.uid !== benchSlot.uid) {
+      const draggedIdx = targetPlayer.bench.findIndex((b) => b.uid === payload.uid);
+      if (draggedIdx === -1) return;
+      const temp = targetPlayer.bench[draggedIdx];
+      targetPlayer.bench[draggedIdx] = benchSlot;
+      targetPlayer.bench[benchIdx] = temp;
+      appendLog(store, `${targetPlayer.name} rearranged bench.`);
+    }
+  });
+
   const onDropDiscard = $((ev: DragEvent, targetPlayerIdx: 0 | 1) => {
     ev.preventDefault();
     const payload = readDragPayload(ev);
@@ -884,276 +911,294 @@ export default component$(() => {
     appendLog(store, `${player.name} moved a revealed Prize to hand via drag-and-drop.`);
   });
 
-  const currentPlayer = store.players[store.currentTurn];
-  const topPlayerIdx = store.phase === "playing" ? ((store.currentTurn === 0 ? 1 : 0) as 0 | 1) : 1;
-  const bottomPlayerIdx = store.phase === "playing" ? store.currentTurn : 0;
-  const boardOrder: [0 | 1, 0 | 1] = [topPlayerIdx, bottomPlayerIdx];
-
   return (
     <div class="simulator-page selfplay-page">
-      <section class="simulator-header">
-        <h1>Pokemon TCG Self-Play Simulator</h1>
-        <p>
-          Two-deck self-play board with setup flow, drag-and-drop zones, prize controls,
-          and strict/manual turn enforcement.
-        </p>
-      </section>
+      <div class="mat-toolbar">
+        <div class="mat-toolbar__left">
+          <button class="sim-btn sim-btn--danger" disabled={store.phase !== "playing"} onClick$={useAttack}>
+            Attack
+          </button>
+        </div>
+        <div class="mat-toolbar__right">
+          <button
+            class={{ "sim-btn": true, "sim-btn--toggled": store.showDecklists }}
+            onClick$={() => { store.showDecklists = !store.showDecklists; }}
+          >
+            Decklists
+          </button>
+          <button
+            class={{ "sim-btn": true, "sim-btn--toggled": store.showGameLog }}
+            onClick$={() => { store.showGameLog = !store.showGameLog; }}
+          >
+            Log
+          </button>
+        </div>
+      </div>
 
-      <section class="simulator-controls">
-        <button class="sim-btn sim-btn--primary" disabled={store.loading} onClick$={startSetup}>
-          {store.loading ? "Loading decks..." : "Run Setup (Load Decks + Mulligans)"}
-        </button>
-        <button class="sim-btn" disabled={store.phase !== "setup"} onClick$={finalizeSetup}>
-          Finalize Setup
-        </button>
-        <button class="sim-btn" onClick$={toggleRulesMode}>
-          Rules: {store.rulesMode === "strict" ? "Strict" : "Manual"}
-        </button>
-        <button class="sim-btn" disabled={store.phase !== "playing"} onClick$={() => drawCard(store.currentTurn)}>
-          Draw (Current)
-        </button>
-        <button class="sim-btn sim-btn--danger" disabled={store.phase !== "playing"} onClick$={useAttack}>
-          Attack
-        </button>
-        <button class="sim-btn" disabled={store.phase !== "playing"} onClick$={endTurn}>
-          End Turn
-        </button>
-        <span class="turn-indicator">
-          Phase: {store.phase} | Turn: {currentPlayer.name} | Turn #{store.turnNumber}
-          {store.coinFlipResult ? ` | Coin: ${store.coinFlipResult}` : ""}
-          {store.winner ? ` | Winner: ${store.winner}` : ""}
-        </span>
-      </section>
+      <div class="mat-status-bar">
+        <span class="mat-status-bar__phase">{store.loading ? "loading" : store.phase}</span>
+        <span class="mat-status-bar__turn">{store.players[store.currentTurn].name} — Turn {store.turnNumber}</span>
+        {store.coinFlipResult && <span>Coin: {store.coinFlipResult}</span>}
+        {store.winner && <span class="mat-status-bar__winner">{store.winner} wins!</span>}
+      </div>
 
-      <section class="deck-import-grid">
-        <article class="sim-card">
-          <h2>Player 1 Deck (60)</h2>
-          <textarea
-            class="deck-input"
-            value={store.deckInput1}
-            onInput$={(ev) => {
-              store.deckInput1 = (ev.target as HTMLTextAreaElement).value;
-            }}
-          />
-        </article>
+      {store.showDecklists && (
+        <section class="mat-panel deck-import-grid">
+          <article class="mat-panel__section">
+            <h3>Player 1 Deck (60)</h3>
+            <textarea
+              class="deck-input"
+              value={store.deckInput1}
+              onInput$={(ev) => {
+                store.deckInput1 = (ev.target as HTMLTextAreaElement).value;
+              }}
+            />
+          </article>
+          <article class="mat-panel__section">
+            <h3>Player 2 Deck (60)</h3>
+            <textarea
+              class="deck-input"
+              value={store.deckInput2}
+              onInput$={(ev) => {
+                store.deckInput2 = (ev.target as HTMLTextAreaElement).value;
+              }}
+            />
+          </article>
+        </section>
+      )}
 
-        <article class="sim-card">
-          <h2>Player 2 Deck (60)</h2>
-          <textarea
-            class="deck-input"
-            value={store.deckInput2}
-            onInput$={(ev) => {
-              store.deckInput2 = (ev.target as HTMLTextAreaElement).value;
-            }}
-          />
-        </article>
-      </section>
-
-      <section class={{ "board-layout": true, "board-layout--flipped": store.phase === "playing" && store.currentTurn === 1 }}>
-        {boardOrder.map((pIdx, orderIdx) => {
+      <div class="playmat-wrapper">
+      <section class="playmat">
+        {([
+          ((store.currentTurn === 0 ? 1 : 0) as 0 | 1),
+          store.currentTurn,
+        ] as [0 | 1, 0 | 1]).map((pIdx, orderIdx) => {
           const player = store.players[pIdx];
           const selectedUid = store.selectedHandUid[pIdx];
           const selectedPrize = store.selectedPrizeUid[pIdx];
           const isTop = orderIdx === 0;
           const seatLabel =
             store.phase === "playing"
-              ? (pIdx === store.firstPlayer ? "First Player" : "Second Player")
-              : (pIdx === 0 ? "Player 1" : "Player 2");
+              ? (pIdx === store.firstPlayer ? "1st" : "2nd")
+              : (pIdx === 0 ? "P1" : "P2");
 
           return (
-            <div key={`player-board-${pIdx}-${store.currentTurn}`} class="board-slot">
-              <article class={{ "sim-card": true, "board-player": true, "board-player--top": isTop, "board-player--bottom": !isTop }}>
-              <div class="board-player__header">
-                <h2>
-                  {player.name} ({seatLabel})
-                </h2>
-                <p>
-                  Deck {player.deck.length} | Hand {player.hand.length} | Prizes {player.prizes.length} | Discard {player.discard.length} | Mulligans {player.mulligans}
-                </p>
+            <div key={`player-board-${pIdx}-${store.currentTurn}`} class={{ "mat-half": true, "mat-half--top": isTop, "mat-half--bottom": !isTop }}>
+              <div class="mat-half__header">
+                <span class="mat-half__name">{player.name} ({seatLabel})</span>
               </div>
 
-              <div class="mat-layout">
-                <div class="mat-left zone-block zone-block--stack">
-                  <strong>Prize Cards</strong>
-                  <div class="prize-grid prize-grid--stack">
-                    {player.prizes.map((prize) => {
+              <div class="mat-grid">
+                {/* Prizes Zone */}
+                <div class="zone-prizes">
+                  <div class="prizes-container">
+                    {Array.from({ length: 6 }).map((_, i) => {
+                      const prize = player.prizes[i];
+                      if (!prize) return <div key={`empty-prize-${i}`} class="card-slot" data-label="Prize" />;
                       const revealed = store.revealedPrizeUids[pIdx].includes(prize.uid);
                       return (
                         <button
                           key={prize.uid}
-                          class={{
-                            "prize-card": true,
-                            "prize-card--selected": selectedPrize === prize.uid,
-                          }}
+                          class={{ "card-slot": true, "card-slot--filled": true, "card-slot--selected": selectedPrize === prize.uid }}
                           onClick$={() => selectPrize(pIdx, prize.uid)}
                           draggable={revealed}
                           onDragStart$={(ev) => onDragStart(ev, { playerIdx: pIdx, zone: "prize", uid: prize.uid })}
                         >
                           {revealed ? (
-                            <img src={imageUrl(prize.card.image) ?? ""} alt={prize.card.name} />
+                            <img src={imageUrl(prize.card.image) ?? ""} alt={prize.card.name} class="play-card-img" />
                           ) : (
-                            <span>Hidden</span>
+                            <div class="card-back-icon">?</div>
                           )}
                         </button>
                       );
                     })}
                   </div>
-                  <div class="btn-row">
-                    <button class="sim-btn" onClick$={() => revealSelectedPrize(pIdx)}>Reveal Selected</button>
-                    <button class="sim-btn" onClick$={() => takeSelectedPrizeToHand(pIdx)}>Take Selected</button>
+                  <div class="attack-panel">
+                    <button class="sim-btn" onClick$={() => revealSelectedPrize(pIdx)}>Reveal</button>
+                    <button class="sim-btn" onClick$={() => takeSelectedPrizeToHand(pIdx)}>Take</button>
                   </div>
                 </div>
 
-                <div class="mat-center">
-                  <div
-                    class="active-zone"
-                    onDragOver$={allowDrop}
-                    onDrop$={(ev) => onDropActive(ev, pIdx)}
-                  >
-                    <h3>Active Pokemon</h3>
-                    {player.active ? (
-                      <div class="play-card">
-                        <img src={imageUrl(player.active.base.card.image) ?? ""} alt={player.active.base.card.name} />
-                        <div class="play-card__meta">
-                          <p>{cardTitle(player.active.base.card)}</p>
-                          <p>Damage: {player.active.damage}</p>
-                          <p>Energy: {player.active.attached.length}</p>
-                          <div class="btn-row">
-                            <button class="sim-btn" onClick$={() => changeDamage(pIdx, "active", 10)}>+10</button>
-                            <button class="sim-btn" onClick$={() => changeDamage(pIdx, "active", -10)}>-10</button>
-                            <button class="sim-btn" onClick$={() => attachSelectedEnergyTo(pIdx, "active")}>Attach Selected Energy</button>
-                          </div>
-                        </div>
+                {/* Stadium Zone */}
+                <div class="zone-stadium">
+                  <div class="card-slot" data-label="Stadium" />
+                </div>
+
+                {/* Active Zone */}
+                <div
+                  class="zone-active"
+                  onDragOver$={allowDrop}
+                  onDrop$={(ev) => onDropActive(ev, pIdx)}
+                >
+                  {player.active ? (
+                    <div class="card-slot card-slot--active">
+                      <div class="play-card-wrapper">
+                        <img src={imageUrl(player.active.base.card.image) ?? ""} alt={player.active.base.card.name} class="play-card-img" />
+                        <div class="card-overlay card-overlay--damage">-{player.active.damage}</div>
+                        <div class="card-overlay">Energy: {player.active.attached.length}</div>
                       </div>
-                    ) : (
-                      <div class="slot-empty">No Active Pokemon</div>
-                    )}
-                  </div>
-
-                  <div class="stadium-zone">
-                    <span>Stadium Zone</span>
-                  </div>
-
-                  <div
-                    class="bench-zone"
-                    onDragOver$={allowDrop}
-                    onDrop$={(ev) => onDropBench(ev, pIdx)}
-                  >
-                    <h3>Bench</h3>
-                    <div class="bench-grid">
-                      {player.bench.map((bench, bIdx) => (
-                        <div
-                          key={bench.uid}
-                          class="bench-card"
-                          draggable={true}
-                          onDragStart$={(ev) => onDragStart(ev, { playerIdx: pIdx, zone: "bench", uid: bench.uid })}
-                        >
-                          <img src={imageUrl(bench.base.card.image) ?? ""} alt={bench.base.card.name} />
-                          <p>{bench.base.card.name}</p>
-                          <p>Dmg {bench.damage} | E {bench.attached.length}</p>
-                          <div class="btn-row">
-                            <button class="sim-btn" onClick$={() => switchWithBench(pIdx, bIdx)}>Make Active</button>
-                            <button class="sim-btn" onClick$={() => attachSelectedEnergyTo(pIdx, bIdx)}>Attach Energy</button>
-                            <button class="sim-btn" onClick$={() => changeDamage(pIdx, bIdx, 10)}>+10</button>
-                            <button class="sim-btn" onClick$={() => changeDamage(pIdx, bIdx, -10)}>-10</button>
-                          </div>
-                        </div>
-                      ))}
+                      <div class="attack-panel">
+                        <button class="sim-btn" onClick$={() => changeDamage(pIdx, "active", 10)}>+10</button>
+                        <button class="sim-btn" onClick$={() => changeDamage(pIdx, "active", -10)}>-10</button>
+                        <button class="sim-btn" onClick$={() => attachSelectedEnergyTo(pIdx, "active")}>Attach</button>
+                      </div>
                     </div>
-                  </div>
-
-                  {store.phase === "playing" && store.currentTurn === pIdx && player.active && (
-                    <div class="attack-panel">
-                      <h3>Selected Attack</h3>
-                      {!store.detailCache[player.active.base.card.id] && (
-                        <button class="sim-btn" onClick$={() => loadCardDetail(player.active!.base.card.id)}>
-                          Load attacks
-                        </button>
-                      )}
-                      {store.detailCache[player.active.base.card.id] && (
-                        <select
-                          class="attack-select"
-                          value={String(store.selectedAttackIndex[pIdx])}
-                          onChange$={(ev) => setAttackIndex(pIdx, parseInt((ev.target as HTMLSelectElement).value, 10) || 0)}
-                        >
-                          {getCardAttacks(store.detailCache[player.active.base.card.id]).map((atk, aIdx) => (
-                            <option key={`${player.active!.base.card.id}-${atk.name}-${aIdx}`} value={aIdx}>
-                              {`${atk.name ?? "Attack"}${atk.damage ? ` (${String(atk.damage)})` : ""}`}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
+                  ) : (
+                    <div class="card-slot card-slot--active" data-label="Active" />
                   )}
                 </div>
 
-                <div class="mat-right">
-                  <div class="zone-block zone-block--stack">
-                    <strong>Discard Pile</strong>
-                    <div
-                      class="discard-drop"
-                      onDragOver$={allowDrop}
-                      onDrop$={(ev) => onDropDiscard(ev, pIdx)}
-                    >
-                      {player.discard.length} cards
-                    </div>
+                {/* Bench Zone */}
+                <div
+                  class="zone-bench"
+                  onDragOver$={allowDrop}
+                  onDrop$={(ev) => onDropBench(ev, pIdx)}
+                >
+                  <div class="bench-container">
+                    {Array.from({ length: 5 }).map((_, i) => {
+                      const bench = player.bench[i];
+                      if (!bench) return <div key={`empty-bench-${i}`} class="card-slot" data-label="Bench" />;
+                      return (
+                        <div
+                          key={bench.uid}
+                          class="card-slot card-slot--filled"
+                          draggable={true}
+                          onDragStart$={(ev) => onDragStart(ev, { playerIdx: pIdx, zone: "bench", uid: bench.uid })}
+                          onDragOver$={allowDrop}
+                          onDrop$={(ev) => onDropBenchSlot(ev, pIdx, i)}
+                        >
+                          <div class="play-card-wrapper">
+                            <img src={imageUrl(bench.base.card.image) ?? ""} alt={bench.base.card.name} class="play-card-img" />
+                            <div class="card-overlay card-overlay--damage">-{bench.damage}</div>
+                            {bench.attached.length > 0 && (
+                              <div class="card-overlay">Energy: {bench.attached.length}</div>
+                            )}
+                          </div>
+                          <div class="attack-panel">
+                            <button class="sim-btn" onClick$={() => switchWithBench(pIdx, i)}>Swap</button>
+                            <button class="sim-btn" onClick$={() => attachSelectedEnergyTo(pIdx, i)}>Attach</button>
+                            <button class="sim-btn" onClick$={() => changeDamage(pIdx, i, 10)}>+10</button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <div class="zone-block zone-block--stack">
-                    <strong>Deck</strong>
-                    <span>{player.deck.length} cards</span>
-                    <button class="sim-btn" onClick$={() => drawCard(pIdx)}>Draw</button>
+                </div>
+
+                {/* Deck Zone */}
+                <div class="zone-deck">
+                  <div class="card-slot" data-label="Deck">
+                    {player.deck.length > 0 && (
+                      <div class="play-card-wrapper">
+                        <div class="stack-count">{player.deck.length}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Discard Zone */}
+                <div
+                  class="zone-discard"
+                  onDragOver$={allowDrop}
+                  onDrop$={(ev) => onDropDiscard(ev, pIdx)}
+                >
+                  <div class="card-slot" data-label="Discard">
+                    {player.discard.length > 0 && (
+                      <div class="play-card-wrapper">
+                        <img src={imageUrl(player.discard[player.discard.length - 1].card.image) ?? ""} alt="Discard" class="play-card-img" />
+                        <div class="stack-count">{player.discard.length}</div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
 
-              <div
-                class="hand-zone"
-                onDragOver$={allowDrop}
-                onDrop$={(ev) => onDropHand(ev, pIdx)}
-              >
-                <h3>Hand (drop revealed Prize here)</h3>
-                <div class="hand-row">
-                  {player.hand.map((card) => (
-                    <button
-                      key={card.uid}
-                      class={{
-                        "hand-card": true,
-                        "hand-card--selected": selectedUid === card.uid,
-                      }}
-                      onClick$={() => selectHandCard(pIdx, card.uid)}
-                      draggable={true}
-                      onDragStart$={(ev) => onDragStart(ev, { playerIdx: pIdx, zone: "hand", uid: card.uid })}
-                    >
-                      <img src={imageUrl(card.card.image) ?? ""} alt={card.card.name} />
-                      <span>{card.card.name}</span>
+              {/* Hand Zone */}
+              {!isTop && (
+                <div
+                  class="hand-container"
+                  onDragOver$={allowDrop}
+                  onDrop$={(ev) => onDropHand(ev, pIdx)}
+                >
+                  <div class="hand-row">
+                    {player.hand.map((card) => (
+                      <button
+                        key={card.uid}
+                        class={{
+                          "hand-card-btn": true,
+                          "hand-card-btn--selected": selectedUid === card.uid,
+                        }}
+                        onClick$={() => selectHandCard(pIdx, card.uid)}
+                        draggable={true}
+                        onDragStart$={(ev) => onDragStart(ev, { playerIdx: pIdx, zone: "hand", uid: card.uid })}
+                      >
+                        <img src={imageUrl(card.card.image) ?? ""} alt={card.card.name} />
+                      </button>
+                    ))}
+                  </div>
+                  <div class="attack-panel">
+                    <button class="sim-btn" onClick$={() => setSelectedActive(pIdx)}>To Active</button>
+                    <button class="sim-btn" onClick$={() => setSelectedBench(pIdx)}>To Bench</button>
+                    <button class="sim-btn sim-btn--danger" onClick$={() => discardSelectedCard(pIdx)}>Discard</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Setup Ready Button */}
+              {!isTop && store.phase === "setup" && store.currentTurn === pIdx && (
+                <div class="mat-panel setup-ready-panel">
+                  <button class="sim-btn sim-btn--primary" onClick$={confirmSetup}>
+                    Ready
+                  </button>
+                </div>
+              )}
+
+              {/* Attack Selection Panel (Bottom player only) */}
+              {!isTop && store.phase === "playing" && store.currentTurn === pIdx && player.active && (
+                <div class="mat-panel attack-panel-main">
+                  {!store.detailCache[player.active.base.card.id] ? (
+                    <button class="sim-btn sim-btn--primary" onClick$={() => loadCardDetail(player.active!.base.card.id)}>
+                      Load attacks
                     </button>
-                  ))}
-                </div>
-                <div class="btn-row">
-                  <button class="sim-btn" onClick$={() => setSelectedActive(pIdx)}>Play Selected to Active</button>
-                  <button class="sim-btn" onClick$={() => setSelectedBench(pIdx)}>Play Selected to Bench</button>
-                  <button class="sim-btn" onClick$={() => discardSelectedCard(pIdx)}>Discard Selected</button>
-                </div>
-              </div>
-              </article>
-              {orderIdx === 0 && (
-                <div class="board-divider">
-                  <span>BATTLEFIELD</span>
+                  ) : (
+                    <div class="attack-controls">
+                      <select
+                        class="attack-select"
+                        value={String(store.selectedAttackIndex[pIdx])}
+                        onChange$={(ev) => setAttackIndex(pIdx, parseInt((ev.target as HTMLSelectElement).value, 10) || 0)}
+                      >
+                        {getCardAttacks(store.detailCache[player.active.base.card.id]).map((atk, aIdx) => (
+                          <option key={`${player.active!.base.card.id}-${atk.name}-${aIdx}`} value={aIdx}>
+                            {`${atk.name ?? "Attack"}${atk.damage ? ` (${String(atk.damage)})` : ""}`}
+                          </option>
+                        ))}
+                      </select>
+                      <button class="sim-btn sim-btn--danger" onClick$={useAttack}>Use Attack</button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           );
         })}
       </section>
+      <div class="playmat-side-actions">
+        <button class="sim-btn sim-btn--end-turn" disabled={store.phase !== "playing"} onClick$={endTurn}>
+          End Turn
+        </button>
+      </div>
+      </div>
 
-      <section class="sim-card sim-card--log">
-        <h2>Game Log</h2>
-        <ul>
-          {store.logs.map((line, idx) => (
-            <li key={`log-${idx}-${line}`}>{line}</li>
-          ))}
-        </ul>
-      </section>
+      {store.showGameLog && (
+        <section class="mat-panel mat-panel--log">
+          <h3>Game Log</h3>
+          <ul>
+            {store.logs.map((line, idx) => (
+              <li key={`log-${idx}-${line}`}>{line}</li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 });
