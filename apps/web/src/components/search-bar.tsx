@@ -1,15 +1,22 @@
-import { $, component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
-import { useLocation, useNavigate } from "@builder.io/qwik-city";
+import { useEffect, useRef } from "react";
+import type { SetURLSearchParams } from "react-router-dom";
 
-export const SearchBar = component$(() => {
-  const loc = useLocation();
-  const nav = useNavigate();
-  const inputRef = useSignal<HTMLInputElement>();
-  const timerRef = useSignal<number>();
-  const selfNav = useSignal(false);
+interface SearchBarProps {
+  searchParams: URLSearchParams;
+  setSearchParams: SetURLSearchParams;
+}
 
-  const doSearch = $((value: string) => {
-    const params = new URLSearchParams(loc.url.searchParams.toString());
+export function SearchBar({ searchParams, setSearchParams }: SearchBarProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!inputRef.current) return;
+    inputRef.current.value = searchParams.get("q") ?? "";
+  }, [searchParams]);
+
+  const doSearch = (value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
     const trimmed = value.trim();
     if (trimmed) {
       params.set("q", trimmed);
@@ -17,36 +24,24 @@ export const SearchBar = component$(() => {
       params.delete("q");
     }
     params.delete("offset");
-    selfNav.value = true;
-    nav(`/?${params.toString()}`);
-  });
-
-  // Sync input value only on external URL changes (browser back/forward)
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(({ track }) => {
-    track(() => loc.url.searchParams.get("q"));
-    if (selfNav.value) {
-      selfNav.value = false;
-      return;
-    }
-    const el = inputRef.value;
-    if (el) {
-      el.value = loc.url.searchParams.get("q") ?? "";
-    }
-  });
+    setSearchParams(params);
+  };
 
   return (
-    <div class="search-bar">
+    <div className="search-bar">
       <input
         ref={inputRef}
-        class="search-bar__input"
+        className="search-bar__input"
         type="text"
         placeholder="Search cards by name..."
-        onInput$={(_, el) => {
-          if (timerRef.value) clearTimeout(timerRef.value);
-          timerRef.value = setTimeout(() => doSearch(el.value), 150) as unknown as number;
+        onInput={(e) => {
+          if (timerRef.current) {
+            window.clearTimeout(timerRef.current);
+          }
+          const target = e.target as HTMLInputElement;
+          timerRef.current = window.setTimeout(() => doSearch(target.value), 150);
         }}
       />
     </div>
   );
-});
+}

@@ -81,6 +81,11 @@ img {
   background: var(--bg-hover);
 }
 
+.site-nav__link--active {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
 
 /* Search Bar */
 .search-bar {
@@ -872,7 +877,6 @@ img {
 }
 
 .mat-half--top {
-  border-bottom: 1px dashed var(--mat-line);
   padding-bottom: 2rem;
 }
 
@@ -909,9 +913,9 @@ img {
 .mat-grid {
   display: grid;
   grid-template-areas: 
-    "prizes stadium active discard"
-    "prizes . bench deck";
-  grid-template-columns: 100px 100px 1fr 100px;
+    "prizes . active . discard"
+    "prizes . bench  . deck";
+  grid-template-columns: 100px 1fr 120px 1fr 100px;
   grid-template-rows: 150px 150px;
   gap: 1.5rem;
   align-items: start;
@@ -919,11 +923,18 @@ img {
 
 /* Zone Area Definitions */
 .zone-prizes { grid-area: prizes; }
-.zone-stadium { grid-area: stadium; }
-.zone-active { grid-area: active; justify-self: center; }
-.zone-bench { grid-area: bench; justify-self: center; }
-.zone-deck { grid-area: deck; }
-.zone-discard { grid-area: discard; }
+.zone-active { grid-area: active; justify-self: center; align-self: center; }
+.zone-bench { grid-area: bench; justify-self: center; align-self: center; }
+.zone-deck { grid-area: deck; justify-self: right; }
+.zone-discard { grid-area: discard; justify-self: right; }
+
+.shared-stadium {
+  position: absolute;
+  top: 50%;
+  left: 175px;
+  transform: translateY(-50%);
+  z-index: 40;
+}
 
 /* Slot Styles */
 .card-slot {
@@ -968,17 +979,6 @@ img {
   border: 2px solid var(--mat-line-strong);
   box-shadow: 0 0 40px rgba(99, 102, 241, 0.2);
   background: rgba(15, 23, 42, 0.4);
-}
-
-.card-slot--active::before {
-  content: "ACTIVE SPOT";
-  position: absolute;
-  top: -1.75rem;
-  font-size: 0.7rem;
-  font-weight: 900;
-  color: var(--mat-accent);
-  letter-spacing: 0.15em;
-  text-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
 }
 
 /* Card Back for face-down cards */
@@ -1028,20 +1028,6 @@ img {
 
 .bench-container .card-slot {
   width: 85px;
-}
-
-/* Decorative Mat Lines */
-.playmat::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--mat-line-strong), transparent);
-  transform: translateY(-50%);
-  pointer-events: none;
-  opacity: 0.5;
 }
 
 /* Card in play */
@@ -1205,7 +1191,7 @@ img {
 /* Responsive adjustments */
 @media (max-width: 1200px) {
   .mat-grid {
-    grid-template-columns: 80px 80px 1fr 80px;
+    grid-template-columns: 80px 80px 1fr 80px 80px;
     gap: 1rem;
   }
   .card-slot { width: 70px; }

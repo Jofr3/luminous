@@ -2,7 +2,6 @@
   "extends": "@luminous/typescript-config/base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "jsxImportSource": "@builder.io/qwik",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["vite/client"],
     "paths": {

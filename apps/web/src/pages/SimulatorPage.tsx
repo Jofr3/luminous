@@ -1,6 +1,5 @@
-import { $, component$, useStore, useVisibleTask$ } from "@builder.io/qwik";
-import { type DocumentHead } from "@builder.io/qwik-city";
-import { fetchCardById, fetchCards, imageUrl } from "~/lib/api";
+import { useEffect } from "react";
+import { fetchCardById, fetchCards } from "~/lib/api";
 import {
   calculateAttackDamage,
   canPayAttackCost,
@@ -8,67 +7,42 @@ import {
   knockoutPrizeCount,
 } from "~/lib/simulator";
 import type { CardDetail, CardSummary } from "~/lib/types";
+import { SimulatorBoard } from "./simulator/SimulatorBoard";
+import { useSimulatorState } from "./simulator/useSimulatorState";
+import type {
+  CardInstance,
+  DeckLine,
+  DragPayload,
+  PlayerBoard,
+  PokemonInPlay,
+  SimulatorStore,
+} from "./simulator/types";
 
-type Phase = "idle" | "setup" | "playing";
-type Zone = "hand" | "active" | "bench" | "prize";
-
-interface DeckLine {
-  qty: number;
-  query: string;
-}
-
-interface CardInstance {
-  uid: string;
-  card: CardSummary;
-}
-
-interface PokemonInPlay {
-  uid: string;
-  base: CardInstance;
-  damage: number;
-  attached: CardInstance[];
-}
-
-interface DragPayload {
-  playerIdx: 0 | 1;
-  zone: Zone;
-  uid: string;
-}
-
-interface PlayerBoard {
-  name: string;
-  deck: CardInstance[];
-  hand: CardInstance[];
-  prizes: CardInstance[];
-  discard: CardInstance[];
-  active: PokemonInPlay | null;
-  bench: PokemonInPlay[];
-  takenPrizes: number;
-  mulligans: number;
-  energyAttachedThisTurn: boolean;
-}
-
-interface SimulatorStore {
-  phase: Phase;
-  winner: string | null;
-  coinFlipResult: "Heads" | "Tails" | null;
-  deckInput1: string;
-  deckInput2: string;
-  loading: boolean;
-  firstPlayer: 0 | 1;
-  currentTurn: 0 | 1;
-  turnNumber: number;
-  turnDrawDone: boolean;
-  selectedHandUid: [string | null, string | null];
-  selectedPrizeUid: [string | null, string | null];
-  selectedAttackIndex: [number, number];
-  revealedPrizeUids: [string[], string[]];
-  detailCache: Record<string, CardDetail>;
-  nameQueryCache: Record<string, CardSummary | null>;
-  logs: string[];
-  players: [PlayerBoard, PlayerBoard];
-  showDecklists: boolean;
-  showGameLog: boolean;
+function createInitialStore(): SimulatorStore {
+  return {
+    phase: "idle",
+    winner: null,
+    coinFlipResult: null,
+    deckInput1: DEFAULT_DECKLIST,
+    deckInput2: DEFAULT_DECKLIST,
+    loading: false,
+    firstPlayer: 0,
+    currentTurn: 0,
+    turnNumber: 1,
+    turnDrawDone: false,
+    selectedHandUid: [null, null],
+    selectedPrizeUid: [null, null],
+    selectedAttackIndex: [0, 0],
+    revealedPrizeUids: [[], []],
+    detailCache: {},
+    nameQueryCache: {},
+    logs: [
+      "Loading decklists and setting up the game...",
+    ],
+    players: [createEmptyPlayer("Player 1"), createEmptyPlayer("Player 2")],
+    showDecklists: false,
+    showGameLog: false,
+  };
 }
 
 const DEFAULT_DECKLIST = [
@@ -141,11 +115,6 @@ function createEmptyPlayer(name: string): PlayerBoard {
     mulligans: 0,
     energyAttachedThisTurn: false,
   };
-}
-
-function cardTitle(card: CardSummary): string {
-  const hp = card.hp ? ` (${card.hp} HP)` : "";
-  return `${card.name}${hp}`;
 }
 
 function parseDecklist(input: string): { lines: DeckLine[]; errors: string[] } {
@@ -371,19 +340,6 @@ function canAct(store: SimulatorStore, playerIdx: 0 | 1, action: string): boolea
   return true;
 }
 
-function readDragPayload(ev: DragEvent): DragPayload | null {
-  const dt = ev.dataTransfer;
-  if (!dt) return null;
-  const raw = dt.getData("application/x-sim-card");
-  if (!raw) return null;
-
-  try {
-    return JSON.parse(raw) as DragPayload;
-  } catch {
-    return null;
-  }
-}
-
 function canDropToSetupBench(store: SimulatorStore, playerIdx: 0 | 1): boolean {
   if (store.phase !== "setup" && store.phase !== "playing") return false;
   return store.players[playerIdx].bench.length < 5;
@@ -396,33 +352,10 @@ async function fetchDetailCached(store: SimulatorStore, id: string): Promise<Car
   return store.detailCache[id];
 }
 
-export default component$(() => {
-  const store = useStore<SimulatorStore>({
-    phase: "idle",
-    winner: null,
-    coinFlipResult: null,
-    deckInput1: DEFAULT_DECKLIST,
-    deckInput2: DEFAULT_DECKLIST,
-    loading: false,
-    firstPlayer: 0,
-    currentTurn: 0,
-    turnNumber: 1,
-    turnDrawDone: false,
-    selectedHandUid: [null, null],
-    selectedPrizeUid: [null, null],
-    selectedAttackIndex: [0, 0],
-    revealedPrizeUids: [[], []],
-    detailCache: {},
-    nameQueryCache: {},
-    logs: [
-      "Loading decklists and setting up the game...",
-    ],
-    players: [createEmptyPlayer("Player 1"), createEmptyPlayer("Player 2")],
-    showDecklists: false,
-    showGameLog: false,
-  });
+export function SimulatorPage() {
+  const { store, withStore } = useSimulatorState(createInitialStore);
 
-  const autoSetup = $(async () => {
+  const autoSetup = withStore(async (store) => {
     store.loading = true;
     try {
       const deck1 = await buildDeckFromInput(store, store.deckInput1, "Player 1 Deck");
@@ -462,7 +395,7 @@ export default component$(() => {
     }
   });
 
-  const confirmSetup = $(() => {
+  const confirmSetup = withStore((store) => {
     if (store.phase !== "setup") return;
 
     const player = store.players[store.currentTurn];
@@ -504,16 +437,17 @@ export default component$(() => {
     }
   });
 
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(() => {
-    autoSetup();
-  });
+  useEffect(() => {
+    void autoSetup();
+    // Initial one-time setup
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const selectHandCard = $((playerIdx: 0 | 1, uid: string) => {
+  const selectHandCard = withStore((store, playerIdx: 0 | 1, uid: string) => {
     store.selectedHandUid[playerIdx] = uid;
   });
 
-  const setSelectedActive = $((playerIdx: 0 | 1) => {
+  const setSelectedActive = withStore((store, playerIdx: 0 | 1) => {
     const player = store.players[playerIdx];
     if (player.active) {
       appendLog(store, `${player.name} already has an Active Pokemon.`);
@@ -533,7 +467,7 @@ export default component$(() => {
     appendLog(store, `${player.name} set Active: ${card.card.name}.`);
   });
 
-  const setSelectedBench = $((playerIdx: 0 | 1) => {
+  const setSelectedBench = withStore((store, playerIdx: 0 | 1) => {
     const player = store.players[playerIdx];
     if (!canDropToSetupBench(store, playerIdx)) {
       appendLog(store, `${player.name} Bench is full.`);
@@ -555,7 +489,7 @@ export default component$(() => {
     appendLog(store, `${player.name} benched ${card.card.name}.`);
   });
 
-  const discardSelectedCard = $((playerIdx: 0 | 1) => {
+  const discardSelectedCard = withStore((store, playerIdx: 0 | 1) => {
     const player = store.players[playerIdx];
     const selectedUid = store.selectedHandUid[playerIdx];
     if (!selectedUid) return;
@@ -567,7 +501,7 @@ export default component$(() => {
     appendLog(store, `${player.name} discarded ${card.card.name}.`);
   });
 
-  const attachSelectedEnergyTo = $((playerIdx: 0 | 1, target: "active" | number) => {
+  const attachSelectedEnergyTo = withStore((store, playerIdx: 0 | 1, target: "active" | number) => {
     if (store.phase !== "playing") return;
     if (!canAct(store, playerIdx, "attach Energy")) return;
 
@@ -608,7 +542,7 @@ export default component$(() => {
     store.selectedHandUid[playerIdx] = null;
   });
 
-  const switchWithBench = $((playerIdx: 0 | 1, benchIdx: number) => {
+  const switchWithBench = withStore((store, playerIdx: 0 | 1, benchIdx: number) => {
     if (store.phase !== "playing") return;
     if (!canAct(store, playerIdx, "switch")) return;
 
@@ -623,7 +557,7 @@ export default component$(() => {
     appendLog(store, `${player.name} switched Active with a Benched Pokemon.`);
   });
 
-  const changeDamage = $((playerIdx: 0 | 1, target: "active" | number, delta: number) => {
+  const changeDamage = withStore((store, playerIdx: 0 | 1, target: "active" | number, delta: number) => {
     const player = store.players[playerIdx];
     const slot = target === "active" ? player.active : player.bench[target];
     if (!slot) return;
@@ -632,15 +566,15 @@ export default component$(() => {
     applyAutoKnockoutCheck(store);
   });
 
-  const setAttackIndex = $((playerIdx: 0 | 1, index: number) => {
+  const setAttackIndex = withStore((store, playerIdx: 0 | 1, index: number) => {
     store.selectedAttackIndex[playerIdx] = index;
   });
 
-  const loadCardDetail = $(async (cardId: string) => {
+  const loadCardDetail = withStore(async (store, cardId: string) => {
     await fetchDetailCached(store, cardId);
   });
 
-  const useAttack = $(async () => {
+  const useAttack = withStore(async (store) => {
     if (store.phase !== "playing") {
       appendLog(store, "Attack is available during playing phase.");
       return;
@@ -693,7 +627,7 @@ export default component$(() => {
     applyAutoKnockoutCheck(store);
   });
 
-  const endTurn = $(() => {
+  const endTurn = withStore((store) => {
     if (store.phase !== "playing") return;
     if (!canAct(store, store.currentTurn, "end turn")) return;
 
@@ -716,11 +650,11 @@ export default component$(() => {
     appendLog(store, `${player.name} drew a card.`);
   });
 
-  const selectPrize = $((playerIdx: 0 | 1, uid: string) => {
+  const selectPrize = withStore((store, playerIdx: 0 | 1, uid: string) => {
     store.selectedPrizeUid[playerIdx] = uid;
   });
 
-  const revealSelectedPrize = $((playerIdx: 0 | 1) => {
+  const revealSelectedPrize = withStore((store, playerIdx: 0 | 1) => {
     const uid = store.selectedPrizeUid[playerIdx];
     if (!uid) return;
     if (!store.revealedPrizeUids[playerIdx].includes(uid)) {
@@ -728,7 +662,7 @@ export default component$(() => {
     }
   });
 
-  const takeSelectedPrizeToHand = $((playerIdx: 0 | 1) => {
+  const takeSelectedPrizeToHand = withStore((store, playerIdx: 0 | 1) => {
     const player = store.players[playerIdx];
     const uid = store.selectedPrizeUid[playerIdx];
     if (!uid) return;
@@ -742,22 +676,7 @@ export default component$(() => {
     appendLog(store, `${player.name} took a selected Prize card to hand.`);
   });
 
-  const onDragStart = $((ev: DragEvent, payload: DragPayload) => {
-    const dt = ev.dataTransfer;
-    if (!dt) return;
-    dt.effectAllowed = "move";
-    dt.setData("application/x-sim-card", JSON.stringify(payload));
-  });
-
-  const allowDrop = $((ev: DragEvent) => {
-    ev.preventDefault();
-  });
-
-  const onDropActive = $((ev: DragEvent, targetPlayerIdx: 0 | 1) => {
-    ev.preventDefault();
-    const payload = readDragPayload(ev);
-    if (!payload) return;
-
+  const dropToActive = withStore((store, payload: DragPayload, targetPlayerIdx: 0 | 1) => {
     const sourcePlayer = store.players[payload.playerIdx];
     const targetPlayer = store.players[targetPlayerIdx];
 
@@ -814,10 +733,8 @@ export default component$(() => {
     }
   });
 
-  const onDropBench = $((ev: DragEvent, targetPlayerIdx: 0 | 1) => {
-    ev.preventDefault();
-    const payload = readDragPayload(ev);
-    if (!payload || payload.zone !== "hand" || payload.playerIdx !== targetPlayerIdx) return;
+  const dropToBench = withStore((store, payload: DragPayload, targetPlayerIdx: 0 | 1) => {
+    if (payload.zone !== "hand" || payload.playerIdx !== targetPlayerIdx) return;
 
     const targetPlayer = store.players[targetPlayerIdx];
     if (targetPlayer.bench.length >= 5) return;
@@ -836,11 +753,13 @@ export default component$(() => {
     appendLog(store, `${targetPlayer.name} benched ${card.card.name} via drag-and-drop.`);
   });
 
-  const onDropBenchSlot = $((ev: DragEvent, targetPlayerIdx: 0 | 1, benchIdx: number) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-    const payload = readDragPayload(ev);
-    if (!payload || payload.playerIdx !== targetPlayerIdx) return;
+  const dropToBenchSlot = withStore((
+    store,
+    payload: DragPayload,
+    targetPlayerIdx: 0 | 1,
+    benchIdx: number,
+  ) => {
+    if (payload.playerIdx !== targetPlayerIdx) return;
 
     const targetPlayer = store.players[targetPlayerIdx];
     const benchSlot = targetPlayer.bench[benchIdx];
@@ -885,10 +804,8 @@ export default component$(() => {
     }
   });
 
-  const onDropDiscard = $((ev: DragEvent, targetPlayerIdx: 0 | 1) => {
-    ev.preventDefault();
-    const payload = readDragPayload(ev);
-    if (!payload || payload.playerIdx !== targetPlayerIdx || payload.zone !== "hand") return;
+  const dropToDiscard = withStore((store, payload: DragPayload, targetPlayerIdx: 0 | 1) => {
+    if (payload.playerIdx !== targetPlayerIdx || payload.zone !== "hand") return;
 
     const targetPlayer = store.players[targetPlayerIdx];
     const card = removeHandCard(targetPlayer, payload.uid);
@@ -897,10 +814,8 @@ export default component$(() => {
     appendLog(store, `${targetPlayer.name} discarded ${card.card.name} via drag-and-drop.`);
   });
 
-  const onDropHand = $((ev: DragEvent, targetPlayerIdx: 0 | 1) => {
-    ev.preventDefault();
-    const payload = readDragPayload(ev);
-    if (!payload || payload.playerIdx !== targetPlayerIdx || payload.zone !== "prize") return;
+  const dropToHand = withStore((store, payload: DragPayload, targetPlayerIdx: 0 | 1) => {
+    if (payload.playerIdx !== targetPlayerIdx || payload.zone !== "prize") return;
 
     const player = store.players[targetPlayerIdx];
     const card = removePrizeCard(player, payload.uid);
@@ -911,305 +826,48 @@ export default component$(() => {
     appendLog(store, `${player.name} moved a revealed Prize to hand via drag-and-drop.`);
   });
 
-  return (
-    <div class="simulator-page selfplay-page">
-      <div class="mat-toolbar">
-        <div class="mat-toolbar__left">
-          <button class="sim-btn sim-btn--danger" disabled={store.phase !== "playing"} onClick$={useAttack}>
-            Attack
-          </button>
-        </div>
-        <div class="mat-toolbar__right">
-          <button
-            class={{ "sim-btn": true, "sim-btn--toggled": store.showDecklists }}
-            onClick$={() => { store.showDecklists = !store.showDecklists; }}
-          >
-            Decklists
-          </button>
-          <button
-            class={{ "sim-btn": true, "sim-btn--toggled": store.showGameLog }}
-            onClick$={() => { store.showGameLog = !store.showGameLog; }}
-          >
-            Log
-          </button>
-        </div>
-      </div>
+  const toggleDecklists = withStore((store) => {
+    store.showDecklists = !store.showDecklists;
+  });
 
-      <div class="mat-status-bar">
-        <span class="mat-status-bar__phase">{store.loading ? "loading" : store.phase}</span>
-        <span class="mat-status-bar__turn">{store.players[store.currentTurn].name} — Turn {store.turnNumber}</span>
-        {store.coinFlipResult && <span>Coin: {store.coinFlipResult}</span>}
-        {store.winner && <span class="mat-status-bar__winner">{store.winner} wins!</span>}
-      </div>
+  const toggleGameLog = withStore((store) => {
+    store.showGameLog = !store.showGameLog;
+  });
 
-      {store.showDecklists && (
-        <section class="mat-panel deck-import-grid">
-          <article class="mat-panel__section">
-            <h3>Player 1 Deck (60)</h3>
-            <textarea
-              class="deck-input"
-              value={store.deckInput1}
-              onInput$={(ev) => {
-                store.deckInput1 = (ev.target as HTMLTextAreaElement).value;
-              }}
-            />
-          </article>
-          <article class="mat-panel__section">
-            <h3>Player 2 Deck (60)</h3>
-            <textarea
-              class="deck-input"
-              value={store.deckInput2}
-              onInput$={(ev) => {
-                store.deckInput2 = (ev.target as HTMLTextAreaElement).value;
-              }}
-            />
-          </article>
-        </section>
-      )}
+  const setDeckInput1 = withStore((store, value: string) => {
+    store.deckInput1 = value;
+  });
 
-      <div class="playmat-wrapper">
-      <section class="playmat">
-        {([
-          ((store.currentTurn === 0 ? 1 : 0) as 0 | 1),
-          store.currentTurn,
-        ] as [0 | 1, 0 | 1]).map((pIdx, orderIdx) => {
-          const player = store.players[pIdx];
-          const selectedUid = store.selectedHandUid[pIdx];
-          const selectedPrize = store.selectedPrizeUid[pIdx];
-          const isTop = orderIdx === 0;
-          const seatLabel =
-            store.phase === "playing"
-              ? (pIdx === store.firstPlayer ? "1st" : "2nd")
-              : (pIdx === 0 ? "P1" : "P2");
+  const setDeckInput2 = withStore((store, value: string) => {
+    store.deckInput2 = value;
+  });
 
-          return (
-            <div key={`player-board-${pIdx}-${store.currentTurn}`} class={{ "mat-half": true, "mat-half--top": isTop, "mat-half--bottom": !isTop }}>
-              <div class="mat-half__header">
-                <span class="mat-half__name">{player.name} ({seatLabel})</span>
-              </div>
+  const actions = {
+    useAttack,
+    toggleDecklists,
+    toggleGameLog,
+    setDeckInput1,
+    setDeckInput2,
+    selectPrize,
+    revealSelectedPrize,
+    takeSelectedPrizeToHand,
+    dropToActive,
+    dropToBench,
+    dropToBenchSlot,
+    dropToDiscard,
+    dropToHand,
+    changeDamage,
+    attachSelectedEnergyTo,
+    switchWithBench,
+    selectHandCard,
+    setSelectedActive,
+    setSelectedBench,
+    discardSelectedCard,
+    confirmSetup,
+    loadCardDetail,
+    setAttackIndex,
+    endTurn,
+  };
 
-              <div class="mat-grid">
-                {/* Prizes Zone */}
-                <div class="zone-prizes">
-                  <div class="prizes-container">
-                    {Array.from({ length: 6 }).map((_, i) => {
-                      const prize = player.prizes[i];
-                      if (!prize) return <div key={`empty-prize-${i}`} class="card-slot" data-label="Prize" />;
-                      const revealed = store.revealedPrizeUids[pIdx].includes(prize.uid);
-                      return (
-                        <button
-                          key={prize.uid}
-                          class={{ "card-slot": true, "card-slot--filled": true, "card-slot--selected": selectedPrize === prize.uid }}
-                          onClick$={() => selectPrize(pIdx, prize.uid)}
-                          draggable={revealed}
-                          onDragStart$={(ev) => onDragStart(ev, { playerIdx: pIdx, zone: "prize", uid: prize.uid })}
-                        >
-                          {revealed ? (
-                            <img src={imageUrl(prize.card.image) ?? ""} alt={prize.card.name} class="play-card-img" />
-                          ) : (
-                            <div class="card-back-icon">?</div>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div class="attack-panel">
-                    <button class="sim-btn" onClick$={() => revealSelectedPrize(pIdx)}>Reveal</button>
-                    <button class="sim-btn" onClick$={() => takeSelectedPrizeToHand(pIdx)}>Take</button>
-                  </div>
-                </div>
-
-                {/* Stadium Zone */}
-                <div class="zone-stadium">
-                  <div class="card-slot" data-label="Stadium" />
-                </div>
-
-                {/* Active Zone */}
-                <div
-                  class="zone-active"
-                  onDragOver$={allowDrop}
-                  onDrop$={(ev) => onDropActive(ev, pIdx)}
-                >
-                  {player.active ? (
-                    <div class="card-slot card-slot--active">
-                      <div class="play-card-wrapper">
-                        <img src={imageUrl(player.active.base.card.image) ?? ""} alt={player.active.base.card.name} class="play-card-img" />
-                        <div class="card-overlay card-overlay--damage">-{player.active.damage}</div>
-                        <div class="card-overlay">Energy: {player.active.attached.length}</div>
-                      </div>
-                      <div class="attack-panel">
-                        <button class="sim-btn" onClick$={() => changeDamage(pIdx, "active", 10)}>+10</button>
-                        <button class="sim-btn" onClick$={() => changeDamage(pIdx, "active", -10)}>-10</button>
-                        <button class="sim-btn" onClick$={() => attachSelectedEnergyTo(pIdx, "active")}>Attach</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div class="card-slot card-slot--active" data-label="Active" />
-                  )}
-                </div>
-
-                {/* Bench Zone */}
-                <div
-                  class="zone-bench"
-                  onDragOver$={allowDrop}
-                  onDrop$={(ev) => onDropBench(ev, pIdx)}
-                >
-                  <div class="bench-container">
-                    {Array.from({ length: 5 }).map((_, i) => {
-                      const bench = player.bench[i];
-                      if (!bench) return <div key={`empty-bench-${i}`} class="card-slot" data-label="Bench" />;
-                      return (
-                        <div
-                          key={bench.uid}
-                          class="card-slot card-slot--filled"
-                          draggable={true}
-                          onDragStart$={(ev) => onDragStart(ev, { playerIdx: pIdx, zone: "bench", uid: bench.uid })}
-                          onDragOver$={allowDrop}
-                          onDrop$={(ev) => onDropBenchSlot(ev, pIdx, i)}
-                        >
-                          <div class="play-card-wrapper">
-                            <img src={imageUrl(bench.base.card.image) ?? ""} alt={bench.base.card.name} class="play-card-img" />
-                            <div class="card-overlay card-overlay--damage">-{bench.damage}</div>
-                            {bench.attached.length > 0 && (
-                              <div class="card-overlay">Energy: {bench.attached.length}</div>
-                            )}
-                          </div>
-                          <div class="attack-panel">
-                            <button class="sim-btn" onClick$={() => switchWithBench(pIdx, i)}>Swap</button>
-                            <button class="sim-btn" onClick$={() => attachSelectedEnergyTo(pIdx, i)}>Attach</button>
-                            <button class="sim-btn" onClick$={() => changeDamage(pIdx, i, 10)}>+10</button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Deck Zone */}
-                <div class="zone-deck">
-                  <div class="card-slot" data-label="Deck">
-                    {player.deck.length > 0 && (
-                      <div class="play-card-wrapper">
-                        <div class="stack-count">{player.deck.length}</div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Discard Zone */}
-                <div
-                  class="zone-discard"
-                  onDragOver$={allowDrop}
-                  onDrop$={(ev) => onDropDiscard(ev, pIdx)}
-                >
-                  <div class="card-slot" data-label="Discard">
-                    {player.discard.length > 0 && (
-                      <div class="play-card-wrapper">
-                        <img src={imageUrl(player.discard[player.discard.length - 1].card.image) ?? ""} alt="Discard" class="play-card-img" />
-                        <div class="stack-count">{player.discard.length}</div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Hand Zone */}
-              {!isTop && (
-                <div
-                  class="hand-container"
-                  onDragOver$={allowDrop}
-                  onDrop$={(ev) => onDropHand(ev, pIdx)}
-                >
-                  <div class="hand-row">
-                    {player.hand.map((card) => (
-                      <button
-                        key={card.uid}
-                        class={{
-                          "hand-card-btn": true,
-                          "hand-card-btn--selected": selectedUid === card.uid,
-                        }}
-                        onClick$={() => selectHandCard(pIdx, card.uid)}
-                        draggable={true}
-                        onDragStart$={(ev) => onDragStart(ev, { playerIdx: pIdx, zone: "hand", uid: card.uid })}
-                      >
-                        <img src={imageUrl(card.card.image) ?? ""} alt={card.card.name} />
-                      </button>
-                    ))}
-                  </div>
-                  <div class="attack-panel">
-                    <button class="sim-btn" onClick$={() => setSelectedActive(pIdx)}>To Active</button>
-                    <button class="sim-btn" onClick$={() => setSelectedBench(pIdx)}>To Bench</button>
-                    <button class="sim-btn sim-btn--danger" onClick$={() => discardSelectedCard(pIdx)}>Discard</button>
-                  </div>
-                </div>
-              )}
-
-              {/* Setup Ready Button */}
-              {!isTop && store.phase === "setup" && store.currentTurn === pIdx && (
-                <div class="mat-panel setup-ready-panel">
-                  <button class="sim-btn sim-btn--primary" onClick$={confirmSetup}>
-                    Ready
-                  </button>
-                </div>
-              )}
-
-              {/* Attack Selection Panel (Bottom player only) */}
-              {!isTop && store.phase === "playing" && store.currentTurn === pIdx && player.active && (
-                <div class="mat-panel attack-panel-main">
-                  {!store.detailCache[player.active.base.card.id] ? (
-                    <button class="sim-btn sim-btn--primary" onClick$={() => loadCardDetail(player.active!.base.card.id)}>
-                      Load attacks
-                    </button>
-                  ) : (
-                    <div class="attack-controls">
-                      <select
-                        class="attack-select"
-                        value={String(store.selectedAttackIndex[pIdx])}
-                        onChange$={(ev) => setAttackIndex(pIdx, parseInt((ev.target as HTMLSelectElement).value, 10) || 0)}
-                      >
-                        {getCardAttacks(store.detailCache[player.active.base.card.id]).map((atk, aIdx) => (
-                          <option key={`${player.active!.base.card.id}-${atk.name}-${aIdx}`} value={aIdx}>
-                            {`${atk.name ?? "Attack"}${atk.damage ? ` (${String(atk.damage)})` : ""}`}
-                          </option>
-                        ))}
-                      </select>
-                      <button class="sim-btn sim-btn--danger" onClick$={useAttack}>Use Attack</button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </section>
-      <div class="playmat-side-actions">
-        <button class="sim-btn sim-btn--end-turn" disabled={store.phase !== "playing"} onClick$={endTurn}>
-          End Turn
-        </button>
-      </div>
-      </div>
-
-      {store.showGameLog && (
-        <section class="mat-panel mat-panel--log">
-          <h3>Game Log</h3>
-          <ul>
-            {store.logs.map((line, idx) => (
-              <li key={`log-${idx}-${line}`}>{line}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-    </div>
-  );
-});
-
-export const head: DocumentHead = {
-  title: "Luminous — Self-Play Simulator",
-  meta: [
-    {
-      name: "description",
-      content:
-        "Play both sides of a Pokemon TCG match with setup, drag-and-drop board zones, and strict/manual rules.",
-    },
-  ],
-};
+  return <SimulatorBoard store={store} actions={actions} />;
+}

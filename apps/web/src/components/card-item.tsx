@@ -1,4 +1,3 @@
-import { component$ } from "@builder.io/qwik";
 import type { CardSummary } from "~/lib/types";
 import { imageUrl } from "~/lib/api";
 
@@ -6,24 +5,20 @@ interface CardItemProps {
   card: CardSummary;
 }
 
-export const CardItem = component$<CardItemProps>(({ card }) => {
+export function CardItem({ card }: CardItemProps) {
   const src = imageUrl(card.image);
 
   return (
-    <div id={card.id} class="card-item">
+    <div id={card.id} className="card-item">
       <div
-        class="card-item__image-wrapper"
-        onMouseEnter$={async (e: MouseEvent) => {
+        className="card-item__image-wrapper"
+        onMouseEnter={async (e) => {
           const target = e.target as HTMLElement | null;
           const clientX = e.clientX;
           const clientY = e.clientY;
-          const { startTilt, updateTilt, stopTilt } = await import(
-            "~/lib/card-tilt"
-          );
-          const wrapper = target?.closest(
-            ".card-item__image-wrapper",
-          ) as HTMLElement | null;
-          if (!wrapper) return;
+          const { startTilt, updateTilt, stopTilt } = await import("~/lib/card-tilt");
+          const wrapper = target?.closest(".card-item__image-wrapper") as HTMLElement | null;
+          if (!wrapper || !src) return;
 
           const setTiltFromPointer = (cx: number, cy: number) => {
             const rect = wrapper.getBoundingClientRect();
@@ -51,7 +46,7 @@ export const CardItem = component$<CardItemProps>(({ card }) => {
         }}
       >
         <img
-          src={src}
+          src={src ?? ""}
           alt={card.name}
           loading="lazy"
           crossOrigin="anonymous"
@@ -61,4 +56,4 @@ export const CardItem = component$<CardItemProps>(({ card }) => {
       </div>
     </div>
   );
-});
+}

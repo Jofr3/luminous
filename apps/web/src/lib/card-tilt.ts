@@ -74,7 +74,6 @@ let texCache = new Map<string, WebGLTexture>();
 // ── Animation state ────────────────────────────────────────────────
 let raf = 0;
 let gen = 0;
-let active = false;
 let lastTime = 0;
 
 // Mouse (tracked directly, no easing — Balatro does the same)
@@ -202,7 +201,6 @@ async function loadTexture(src: string): Promise<WebGLTexture> {
 }
 
 function cleanup() {
-  active = false;
   activeWrapper = null;
   cancelAnimationFrame(raf);
   if (canvas) canvas.style.display = "none";
@@ -290,7 +288,6 @@ export async function startTilt(wrapper: HTMLElement, imgSrc: string) {
     hiddenImg = null;
   }
   const thisGen = ++gen;
-  active = true;
   activeWrapper = wrapper;
   mouseX = 0;
   mouseY = 0;

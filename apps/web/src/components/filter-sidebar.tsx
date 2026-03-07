@@ -1,19 +1,13 @@
-import {
-  $,
-  component$,
-  useSignal,
-  useTask$,
-  useComputed$,
-} from "@builder.io/qwik";
-import { useLocation, useNavigate } from "@builder.io/qwik-city";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { SetURLSearchParams } from "react-router-dom";
 import type { FilterOptions, SetSummary } from "~/lib/types";
 
 interface FilterSidebarProps {
   filterOptions: FilterOptions;
   sets: SetSummary[];
+  searchParams: URLSearchParams;
+  setSearchParams: SetURLSearchParams;
 }
-
-// --- Helpers ---
 
 function getParamValues(params: URLSearchParams, key: string): string[] {
   const val = params.get(key);
@@ -21,64 +15,62 @@ function getParamValues(params: URLSearchParams, key: string): string[] {
   return val.split(",").filter(Boolean);
 }
 
-// --- FilterSidebar ---
+export function FilterSidebar({
+  filterOptions,
+  sets,
+  searchParams,
+  setSearchParams,
+}: FilterSidebarProps) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [setSearch, setSetSearch] = useState("");
+  const [hpMinInput, setHpMinInput] = useState("");
+  const [hpMaxInput, setHpMaxInput] = useState("");
+  const hpTimer = useRef<number | null>(null);
 
-export const FilterSidebar = component$<FilterSidebarProps>(
-  ({ filterOptions, sets }) => {
-    const loc = useLocation();
-    const nav = useNavigate();
-    const mobileOpen = useSignal(false);
-    const setSearch = useSignal("");
-    const hpMinInput = useSignal("");
-    const hpMaxInput = useSignal("");
-    const hpTimer = useSignal<number>();
+  useEffect(() => {
+    setHpMinInput(searchParams.get("hp_min") ?? "");
+    setHpMaxInput(searchParams.get("hp_max") ?? "");
+  }, [searchParams]);
 
-    // Sync HP inputs from URL
-    useTask$(({ track }) => {
-      track(() => loc.url.searchParams.get("hp_min"));
-      track(() => loc.url.searchParams.get("hp_max"));
-      hpMinInput.value = loc.url.searchParams.get("hp_min") ?? "";
-      hpMaxInput.value = loc.url.searchParams.get("hp_max") ?? "";
-    });
+  const activeCount = useMemo(() => {
+    const keys = [
+      "category",
+      "rarity",
+      "stage",
+      "trainer_type",
+      "energy_type",
+      "types",
+      "weakness",
+      "resistance",
+      "retreat",
+      "set",
+      "legal_standard",
+      "legal_expanded",
+      "hp_min",
+      "hp_max",
+    ];
+    return keys.reduce((acc, key) => (searchParams.get(key) ? acc + 1 : acc), 0);
+  }, [searchParams]);
 
-    const activeCount = useComputed$(() => {
-      const p = loc.url.searchParams;
-      let count = 0;
-      const keys = [
-        "category",
-        "rarity",
-        "stage",
-        "trainer_type",
-        "energy_type",
-        "types",
-        "weakness",
-        "resistance",
-        "retreat",
-        "set",
-        "legal_standard",
-        "legal_expanded",
-        "hp_min",
-        "hp_max",
-      ];
-      for (const k of keys) {
-        if (p.get(k)) count++;
-      }
-      return count;
-    });
+  const mutateParams = (fn: (params: URLSearchParams) => void) => {
+    const params = new URLSearchParams(searchParams.toString());
+    fn(params);
+    params.delete("offset");
+    setSearchParams(params);
+  };
 
-    const toggleSingle = $((key: string, value: string) => {
-      const params = new URLSearchParams(loc.url.searchParams.toString());
+  const toggleSingle = (key: string, value: string) => {
+    mutateParams((params) => {
       if (params.get(key) === value) {
         params.delete(key);
       } else {
         params.set(key, value);
       }
-      params.delete("offset");
-      nav(`/?${params.toString()}`);
     });
+  };
 
-    const toggleMulti = $((key: string, value: string) => {
-      const params = new URLSearchParams(loc.url.searchParams.toString());
+  const toggleMulti = (key: string, value: string) => {
+    mutateParams((params) => {
       const current = getParamValues(params, key);
       const idx = current.indexOf(value);
       if (idx >= 0) {
@@ -91,446 +83,271 @@ export const FilterSidebar = component$<FilterSidebarProps>(
       } else {
         params.delete(key);
       }
-      params.delete("offset");
-      nav(`/?${params.toString()}`);
     });
+  };
 
-    const toggleBool = $((key: string) => {
-      const params = new URLSearchParams(loc.url.searchParams.toString());
+  const toggleBool = (key: string) => {
+    mutateParams((params) => {
       if (params.get(key)) {
         params.delete(key);
       } else {
         params.set(key, "1");
       }
-      params.delete("offset");
-      nav(`/?${params.toString()}`);
     });
+  };
 
-    const setHP = $((key: string, value: string) => {
-      const params = new URLSearchParams(loc.url.searchParams.toString());
+  const setHP = (key: string, value: string) => {
+    mutateParams((params) => {
       if (value) {
         params.set(key, value);
       } else {
         params.delete(key);
       }
-      params.delete("offset");
-      nav(`/?${params.toString()}`);
     });
+  };
 
-    const clearAll = $(() => {
-      const params = new URLSearchParams();
-      const q = loc.url.searchParams.get("q");
-      if (q) params.set("q", q);
-      nav(`/?${params.toString()}`);
-      mobileOpen.value = false;
-    });
+  const clearAll = () => {
+    const params = new URLSearchParams();
+    const q = searchParams.get("q");
+    if (q) params.set("q", q);
+    setSearchParams(params);
+    setMobileOpen(false);
+  };
 
-    const selectSet = $((setId: string) => {
-      const params = new URLSearchParams(loc.url.searchParams.toString());
+  const selectSet = (setId: string) => {
+    mutateParams((params) => {
       if (setId) {
         params.set("set", setId);
       } else {
         params.delete("set");
       }
-      params.delete("offset");
-      setSearch.value = "";
-      nav(`/?${params.toString()}`);
     });
+    setSetSearch("");
+  };
 
-    const filteredSets = useComputed$(() => {
-      const s = setSearch.value.toLowerCase();
-      if (!s) return sets.slice(0, 20);
-      return sets.filter((set) => set.name.toLowerCase().includes(s));
-    });
+  const filteredSets = useMemo(() => {
+    const s = setSearch.toLowerCase();
+    if (!s) return sets.slice(0, 20);
+    return sets.filter((set) => set.name.toLowerCase().includes(s));
+  }, [setSearch, sets]);
 
-    const selectedSetName = useComputed$(() => {
-      const id = loc.url.searchParams.get("set");
-      if (!id) return "";
-      return sets.find((s) => s.id === id)?.name ?? id;
-    });
+  const selectedSetName = useMemo(() => {
+    const id = searchParams.get("set");
+    if (!id) return "";
+    return sets.find((s) => s.id === id)?.name ?? id;
+  }, [searchParams, sets]);
 
-    const sidebarContent = (
-      <div class="filter-sidebar__inner">
-        <div class="filter-sidebar__header">
-          <h3 class="filter-sidebar__title">Filters</h3>
-          {activeCount.value > 0 && (
-            <button class="filter-clear-btn" onClick$={clearAll}>
-              Clear ({activeCount.value})
-            </button>
-          )}
-          <button
-            class="filter-sidebar__close"
-            onClick$={() => {
-              mobileOpen.value = false;
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path
-                d="M5 5L15 15M15 5L5 15"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-              />
-            </svg>
+  const sidebarContent = (
+    <div className="filter-sidebar__inner">
+      <div className="filter-sidebar__header">
+        <h3 className="filter-sidebar__title">Filters</h3>
+        {activeCount > 0 && (
+          <button className="filter-clear-btn" onClick={clearAll}>
+            Clear ({activeCount})
           </button>
-        </div>
-
-        {/* --- Category --- */}
-        <details
-          class="filter-group"
-          open={!!loc.url.searchParams.get("category") || undefined}
-        >
-          <summary class="filter-group__header">Category</summary>
-          <div class="filter-group__content">
-            {filterOptions.categories.map((v) => (
-              <label key={v} class="filter-checkbox">
-                <input
-                  type="checkbox"
-                  checked={loc.url.searchParams.get("category") === v}
-                  onChange$={() => toggleSingle("category", v)}
-                />
-                <span>{v}</span>
-              </label>
-            ))}
-          </div>
-        </details>
-
-        {/* --- Set --- */}
-        <details
-          class="filter-group"
-          open={!!loc.url.searchParams.get("set") || undefined}
-        >
-          <summary class="filter-group__header">Set</summary>
-          <div class="filter-group__content">
-            {selectedSetName.value && (
-              <div class="filter-set-active">
-                <span>{selectedSetName.value}</span>
-                <button
-                  class="filter-set-clear"
-                  onClick$={() => selectSet("")}
-                >
-                  x
-                </button>
-              </div>
-            )}
-            <input
-              class="filter-select__search"
-              type="text"
-              placeholder="Search sets..."
-              value={setSearch.value}
-              onInput$={(_, el) => {
-                setSearch.value = el.value;
-              }}
-            />
-            <div class="filter-select__list">
-              {filteredSets.value.map((s) => (
-                <button
-                  key={s.id}
-                  class={`filter-select__option ${loc.url.searchParams.get("set") === s.id ? "filter-select__option--active" : ""}`}
-                  onClick$={() => selectSet(s.id)}
-                >
-                  {s.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        </details>
-
-        {/* --- Rarity --- */}
-        <details
-          class="filter-group"
-          open={!!loc.url.searchParams.get("rarity") || undefined}
-        >
-          <summary class="filter-group__header">Rarity</summary>
-          <div class="filter-group__content">
-            {filterOptions.rarities.map((v) => (
-              <label key={v} class="filter-checkbox">
-                <input
-                  type="checkbox"
-                  checked={loc.url.searchParams.get("rarity") === v}
-                  onChange$={() => toggleSingle("rarity", v)}
-                />
-                <span>{v}</span>
-              </label>
-            ))}
-          </div>
-        </details>
-
-        {/* --- Stage --- */}
-        {filterOptions.stages.length > 0 && (
-          <details
-            class="filter-group"
-            open={!!loc.url.searchParams.get("stage") || undefined}
-          >
-            <summary class="filter-group__header">Stage</summary>
-            <div class="filter-group__content">
-              {filterOptions.stages.map((v) => (
-                <label key={v} class="filter-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={loc.url.searchParams.get("stage") === v}
-                    onChange$={() => toggleSingle("stage", v)}
-                  />
-                  <span>{v}</span>
-                </label>
-              ))}
-            </div>
-          </details>
         )}
-
-        {/* --- Types --- */}
-        {filterOptions.types.length > 0 && (
-          <details
-            class="filter-group"
-            open={!!loc.url.searchParams.get("types") || undefined}
-          >
-            <summary class="filter-group__header">Types</summary>
-            <div class="filter-group__content">
-              {filterOptions.types.map((v) => (
-                <label key={v} class="filter-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={getParamValues(loc.url.searchParams, "types").includes(v)}
-                    onChange$={() => toggleMulti("types", v)}
-                  />
-                  <span>{v}</span>
-                </label>
-              ))}
-            </div>
-          </details>
-        )}
-
-        {/* --- Weaknesses --- */}
-        {filterOptions.weaknesses.length > 0 && (
-          <details
-            class="filter-group"
-            open={!!loc.url.searchParams.get("weakness") || undefined}
-          >
-            <summary class="filter-group__header">Weakness</summary>
-            <div class="filter-group__content">
-              {filterOptions.weaknesses.map((v) => (
-                <label key={v} class="filter-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={getParamValues(loc.url.searchParams, "weakness").includes(v)}
-                    onChange$={() => toggleMulti("weakness", v)}
-                  />
-                  <span>{v}</span>
-                </label>
-              ))}
-            </div>
-          </details>
-        )}
-
-        {/* --- Resistances --- */}
-        {filterOptions.resistances.length > 0 && (
-          <details
-            class="filter-group"
-            open={!!loc.url.searchParams.get("resistance") || undefined}
-          >
-            <summary class="filter-group__header">Resistance</summary>
-            <div class="filter-group__content">
-              {filterOptions.resistances.map((v) => (
-                <label key={v} class="filter-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={getParamValues(loc.url.searchParams, "resistance").includes(v)}
-                    onChange$={() => toggleMulti("resistance", v)}
-                  />
-                  <span>{v}</span>
-                </label>
-              ))}
-            </div>
-          </details>
-        )}
-
-        {/* --- HP Range --- */}
-        <details
-          class="filter-group"
-          open={
-            !!(
-              loc.url.searchParams.get("hp_min") ||
-              loc.url.searchParams.get("hp_max")
-            ) || undefined
-          }
-        >
-          <summary class="filter-group__header">HP</summary>
-          <div class="filter-group__content">
-            <div class="filter-range">
-              <input
-                type="number"
-                class="filter-range__input"
-                placeholder={String(filterOptions.hp.min)}
-                value={hpMinInput.value}
-                onInput$={(_, el) => {
-                  hpMinInput.value = el.value;
-                  if (hpTimer.value) clearTimeout(hpTimer.value);
-                  hpTimer.value = setTimeout(
-                    () => setHP("hp_min", el.value),
-                    300,
-                  ) as unknown as number;
-                }}
-              />
-              <span class="filter-range__sep">-</span>
-              <input
-                type="number"
-                class="filter-range__input"
-                placeholder={String(filterOptions.hp.max)}
-                value={hpMaxInput.value}
-                onInput$={(_, el) => {
-                  hpMaxInput.value = el.value;
-                  if (hpTimer.value) clearTimeout(hpTimer.value);
-                  hpTimer.value = setTimeout(
-                    () => setHP("hp_max", el.value),
-                    300,
-                  ) as unknown as number;
-                }}
-              />
-            </div>
-          </div>
-        </details>
-
-        {/* --- Retreat --- */}
-        {filterOptions.retreats.length > 0 && (
-          <details
-            class="filter-group"
-            open={!!loc.url.searchParams.get("retreat") || undefined}
-          >
-            <summary class="filter-group__header">Retreat Cost</summary>
-            <div class="filter-group__content">
-              {filterOptions.retreats.map((v) => (
-                <label key={v} class="filter-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={
-                      loc.url.searchParams.get("retreat") === String(v)
-                    }
-                    onChange$={() => toggleSingle("retreat", String(v))}
-                  />
-                  <span>{v}</span>
-                </label>
-              ))}
-            </div>
-          </details>
-        )}
-
-        {/* --- Trainer Type --- */}
-        {filterOptions.trainer_types.length > 0 && (
-          <details
-            class="filter-group"
-            open={!!loc.url.searchParams.get("trainer_type") || undefined}
-          >
-            <summary class="filter-group__header">Trainer Type</summary>
-            <div class="filter-group__content">
-              {filterOptions.trainer_types.map((v) => (
-                <label key={v} class="filter-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={loc.url.searchParams.get("trainer_type") === v}
-                    onChange$={() => toggleSingle("trainer_type", v)}
-                  />
-                  <span>{v}</span>
-                </label>
-              ))}
-            </div>
-          </details>
-        )}
-
-        {/* --- Energy Type --- */}
-        {filterOptions.energy_types.length > 0 && (
-          <details
-            class="filter-group"
-            open={!!loc.url.searchParams.get("energy_type") || undefined}
-          >
-            <summary class="filter-group__header">Energy Type</summary>
-            <div class="filter-group__content">
-              {filterOptions.energy_types.map((v) => (
-                <label key={v} class="filter-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={loc.url.searchParams.get("energy_type") === v}
-                    onChange$={() => toggleSingle("energy_type", v)}
-                  />
-                  <span>{v}</span>
-                </label>
-              ))}
-            </div>
-          </details>
-        )}
-
-        {/* --- Legality --- */}
-        <details class="filter-group">
-          <summary class="filter-group__header">Legality</summary>
-          <div class="filter-group__content">
-            <label class="filter-toggle">
-              <span>Standard Legal</span>
-              <input
-                type="checkbox"
-                class="filter-toggle__input"
-                checked={!!loc.url.searchParams.get("legal_standard")}
-                onChange$={() => toggleBool("legal_standard")}
-              />
-              <span class="filter-toggle__track">
-                <span class="filter-toggle__thumb" />
-              </span>
-            </label>
-            <label class="filter-toggle">
-              <span>Expanded Legal</span>
-              <input
-                type="checkbox"
-                class="filter-toggle__input"
-                checked={!!loc.url.searchParams.get("legal_expanded")}
-                onChange$={() => toggleBool("legal_expanded")}
-              />
-              <span class="filter-toggle__track">
-                <span class="filter-toggle__thumb" />
-              </span>
-            </label>
-          </div>
-        </details>
-      </div>
-    );
-
-    return (
-      <>
-        {/* Desktop sidebar */}
-        <aside class="filter-sidebar">{sidebarContent}</aside>
-
-        {/* Mobile FAB */}
-        <button
-          class="filter-fab"
-          onClick$={() => {
-            mobileOpen.value = true;
-          }}
-        >
+        <button className="filter-sidebar__close" onClick={() => setMobileOpen(false)}>
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path
-              d="M3 5H17M6 10H14M9 15H11"
+              d="M5 5L15 15M15 5L5 15"
               stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
+              strokeWidth="1.5"
+              strokeLinecap="round"
             />
           </svg>
-          {activeCount.value > 0 && (
-            <span class="filter-fab__badge">{activeCount.value}</span>
-          )}
         </button>
+      </div>
 
-        {/* Mobile drawer */}
-        {mobileOpen.value && (
-          <>
-            <div
-              class="filter-backdrop"
-              onClick$={() => {
-                mobileOpen.value = false;
+      <details className="filter-group" open={!!searchParams.get("category") || undefined}>
+        <summary className="filter-group__header">Category</summary>
+        <div className="filter-group__content">
+          {filterOptions.categories.map((v) => (
+            <label key={v} className="filter-checkbox">
+              <input
+                type="checkbox"
+                checked={searchParams.get("category") === v}
+                onChange={() => toggleSingle("category", v)}
+              />
+              <span>{v}</span>
+            </label>
+          ))}
+        </div>
+      </details>
+
+      <details className="filter-group" open={!!searchParams.get("set") || undefined}>
+        <summary className="filter-group__header">Set</summary>
+        <div className="filter-group__content">
+          {selectedSetName && (
+            <div className="filter-set-active">
+              <span>{selectedSetName}</span>
+              <button className="filter-set-clear" onClick={() => selectSet("")}>
+                x
+              </button>
+            </div>
+          )}
+          <input
+            className="filter-select__search"
+            type="text"
+            placeholder="Search sets..."
+            value={setSearch}
+            onInput={(e) => setSetSearch((e.target as HTMLInputElement).value)}
+          />
+          <div className="filter-select__list">
+            {filteredSets.map((s) => (
+              <button
+                key={s.id}
+                className={`filter-select__option ${searchParams.get("set") === s.id ? "filter-select__option--active" : ""}`}
+                onClick={() => selectSet(s.id)}
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </details>
+
+      <details className="filter-group" open={!!searchParams.get("rarity") || undefined}>
+        <summary className="filter-group__header">Rarity</summary>
+        <div className="filter-group__content">
+          {filterOptions.rarities.map((v) => (
+            <label key={v} className="filter-checkbox">
+              <input
+                type="checkbox"
+                checked={searchParams.get("rarity") === v}
+                onChange={() => toggleSingle("rarity", v)}
+              />
+              <span>{v}</span>
+            </label>
+          ))}
+        </div>
+      </details>
+
+      {filterOptions.stages.length > 0 && (
+        <details className="filter-group" open={!!searchParams.get("stage") || undefined}>
+          <summary className="filter-group__header">Stage</summary>
+          <div className="filter-group__content">
+            {filterOptions.stages.map((v) => (
+              <label key={v} className="filter-checkbox">
+                <input
+                  type="checkbox"
+                  checked={searchParams.get("stage") === v}
+                  onChange={() => toggleSingle("stage", v)}
+                />
+                <span>{v}</span>
+              </label>
+            ))}
+          </div>
+        </details>
+      )}
+
+      {filterOptions.types.length > 0 && (
+        <details className="filter-group" open={!!searchParams.get("types") || undefined}>
+          <summary className="filter-group__header">Types</summary>
+          <div className="filter-group__content">
+            {filterOptions.types.map((v) => (
+              <label key={v} className="filter-checkbox">
+                <input
+                  type="checkbox"
+                  checked={getParamValues(searchParams, "types").includes(v)}
+                  onChange={() => toggleMulti("types", v)}
+                />
+                <span>{v}</span>
+              </label>
+            ))}
+          </div>
+        </details>
+      )}
+
+      <details
+        className="filter-group"
+        open={!!(searchParams.get("hp_min") || searchParams.get("hp_max")) || undefined}
+      >
+        <summary className="filter-group__header">HP</summary>
+        <div className="filter-group__content">
+          <div className="filter-range">
+            <input
+              type="number"
+              className="filter-range__input"
+              placeholder={String(filterOptions.hp.min)}
+              value={hpMinInput}
+              onInput={(e) => {
+                const value = (e.target as HTMLInputElement).value;
+                setHpMinInput(value);
+                if (hpTimer.current) window.clearTimeout(hpTimer.current);
+                hpTimer.current = window.setTimeout(() => setHP("hp_min", value), 300);
               }}
             />
-            <aside class="filter-sidebar filter-sidebar--mobile">
-              {sidebarContent}
-            </aside>
-          </>
-        )}
-      </>
-    );
-  },
-);
+            <span className="filter-range__sep">-</span>
+            <input
+              type="number"
+              className="filter-range__input"
+              placeholder={String(filterOptions.hp.max)}
+              value={hpMaxInput}
+              onInput={(e) => {
+                const value = (e.target as HTMLInputElement).value;
+                setHpMaxInput(value);
+                if (hpTimer.current) window.clearTimeout(hpTimer.current);
+                hpTimer.current = window.setTimeout(() => setHP("hp_max", value), 300);
+              }}
+            />
+          </div>
+        </div>
+      </details>
+
+      <details className="filter-group">
+        <summary className="filter-group__header">Legality</summary>
+        <div className="filter-group__content">
+          <label className="filter-toggle">
+            <span>Standard Legal</span>
+            <input
+              type="checkbox"
+              className="filter-toggle__input"
+              checked={!!searchParams.get("legal_standard")}
+              onChange={() => toggleBool("legal_standard")}
+            />
+            <span className="filter-toggle__track">
+              <span className="filter-toggle__thumb" />
+            </span>
+          </label>
+          <label className="filter-toggle">
+            <span>Expanded Legal</span>
+            <input
+              type="checkbox"
+              className="filter-toggle__input"
+              checked={!!searchParams.get("legal_expanded")}
+              onChange={() => toggleBool("legal_expanded")}
+            />
+            <span className="filter-toggle__track">
+              <span className="filter-toggle__thumb" />
+            </span>
+          </label>
+        </div>
+      </details>
+    </div>
+  );
+
+  return (
+    <>
+      <aside className="filter-sidebar">{sidebarContent}</aside>
+
+      <button className="filter-fab" onClick={() => setMobileOpen(true)}>
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path
+            d="M3 5H17M6 10H14M9 15H11"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+        {activeCount > 0 && <span className="filter-fab__badge">{activeCount}</span>}
+      </button>
+
+      {mobileOpen && (
+        <>
+          <div className="filter-backdrop" onClick={() => setMobileOpen(false)} />
+          <aside className="filter-sidebar filter-sidebar--mobile">{sidebarContent}</aside>
+        </>
+      )}
+    </>
+  );
+}
