@@ -163,21 +163,26 @@ export function useSimulatorActions(withStore: WithStore): {
     if (!card) return;
 
     if (card.card.category === "Energy") {
+      if (store.phase === "setup") {
+        sourcePlayer.hand.push(card);
+        appendLog(store, "Cannot attach Energy during setup.");
+        return;
+      }
       if (!targetPlayer.active) {
         sourcePlayer.hand.push(card);
         return;
       }
-      if (store.phase === "playing" && !canAct(store, targetPlayerIdx, "attach Energy")) {
+      if (!canAct(store, targetPlayerIdx, "attach Energy")) {
         sourcePlayer.hand.push(card);
         return;
       }
-      if (store.phase === "playing" && targetPlayer.energyAttachedThisTurn) {
+      if (targetPlayer.energyAttachedThisTurn) {
         sourcePlayer.hand.push(card);
         appendLog(store, `P${targetPlayerIdx + 1} already attached Energy this turn.`);
         return;
       }
       targetPlayer.active.attached.push(card);
-      if (store.phase === "playing") targetPlayer.energyAttachedThisTurn = true;
+      targetPlayer.energyAttachedThisTurn = true;
       appendLog(store, `P${targetPlayerIdx + 1} attached ${card.card.name} to Active via drag-and-drop.`);
       return;
     }
@@ -227,17 +232,22 @@ export function useSimulatorActions(withStore: WithStore): {
       if (!card) return;
 
       if (card.card.category === "Energy") {
-        if (store.phase === "playing" && !canAct(store, targetPlayerIdx, "attach Energy")) {
+        if (store.phase === "setup") {
+          targetPlayer.hand.push(card);
+          appendLog(store, "Cannot attach Energy during setup.");
+          return;
+        }
+        if (!canAct(store, targetPlayerIdx, "attach Energy")) {
           targetPlayer.hand.push(card);
           return;
         }
-        if (store.phase === "playing" && targetPlayer.energyAttachedThisTurn) {
+        if (targetPlayer.energyAttachedThisTurn) {
           targetPlayer.hand.push(card);
           appendLog(store, `P${targetPlayerIdx + 1} already attached Energy this turn.`);
           return;
         }
         benchSlot.attached.push(card);
-        if (store.phase === "playing") targetPlayer.energyAttachedThisTurn = true;
+        targetPlayer.energyAttachedThisTurn = true;
         store.selectedHandUid[targetPlayerIdx] = null;
         appendLog(store, `P${targetPlayerIdx + 1} attached ${card.card.name} to Benched ${benchSlot.base.card.name}.`);
         return;
