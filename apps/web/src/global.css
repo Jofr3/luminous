@@ -618,9 +618,10 @@ img {
    ========================================================================== */
 
 .simulator-page {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 1fr auto;
   height: 100vh;
+  max-height: 100vh;
   overflow: hidden;
   background: var(--bg);
 }
@@ -875,13 +876,14 @@ img {
 
 /* Half of the mat (one player's side) */
 .mat-half {
-  flex: 0 0 auto;
+  flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-height: 360px;
+  align-items: center;
+  min-height: 0;
+  width: 100%;
   position: relative;
-  padding: 0;
 }
 
 
@@ -900,9 +902,11 @@ img {
     "prizes . active . discard"
     "prizes . bench  . deck";
   grid-template-columns: 120px 1fr 500px 1fr 120px;
-  grid-template-rows: 160px 160px;
-  gap: 1rem;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
   width: 100%;
+  height: 100%;
+  max-height: 400px;
   margin: 0 auto;
   justify-items: center;
   align-items: center;
@@ -928,8 +932,6 @@ img {
   flex-direction: column;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  background: rgba(0, 0, 0, 0.6);
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .hand-container {
@@ -939,7 +941,9 @@ img {
 
 /* Slot Styles */
 .card-slot {
-  width: 90px;
+  height: 16vh;
+  max-height: 140px;
+  min-height: 80px;
   aspect-ratio: 2.5 / 3.5;
   border: 2px dashed var(--mat-slot-border);
   border-radius: 10px;
@@ -975,7 +979,10 @@ img {
 }
 
 .card-slot--active {
-  width: 120px;
+  height: 18vh;
+  max-height: 160px;
+  min-height: 100px;
+  width: auto;
   border: 2px dashed var(--mat-slot-border);
   background: var(--mat-slot-bg);
 }
@@ -999,31 +1006,38 @@ img {
 /* Prizes column */
 .prizes-container {
   display: grid;
-  grid-template-columns: repeat(2, 45px);
-  grid-template-rows: repeat(3, 63px);
-  gap: 0.5rem;
-  padding: 0.5rem;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 0.4rem;
+  padding: 0.4rem;
+  height: 100%;
+  width: 100%;
 }
 
 .prizes-container .card-slot {
-  width: 45px;
-  height: 63px;
+  width: auto;
+  height: 7vh;
+  max-height: 65px;
   border-radius: 4px;
 }
 
 /* Bench row */
 .bench-container {
   display: flex;
-  gap: 1rem;
-  padding: 1rem;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
   background: rgba(255, 255, 255, 0.03);
-  border-radius: 16px;
+  border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow: inset 0 2px 10px rgba(0,0,0,0.3);
+  height: auto;
+  width: auto;
+  justify-content: center;
 }
 
 .bench-container .card-slot {
-  width: 80px;
+  height: 15vh;
+  max-height: 130px;
 }
 
 /* Card in play */
