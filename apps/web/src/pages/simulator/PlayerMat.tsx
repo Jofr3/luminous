@@ -74,31 +74,30 @@ export function PlayerMat({ pIdx, isTop, store, actions }: PlayerMatProps) {
         </Droppable>
 
         <Droppable id={`bench:${pIdx}`} className="zone-bench">
-          <div className="bench-container">
-            {Array.from({ length: 5 }).map((_, i) => {
-              const bench = player.bench[i];
-              if (!bench) return <div key={`empty-bench-${i}`} className="card-slot" data-label="Bench" />;
-              return (
-                <Droppable key={bench.uid} id={`bench-slot:${pIdx}:${i}`} className="card-slot card-slot--filled">
-                  <Draggable
-                    id={`bench:${pIdx}:${bench.uid}`}
-                    payload={{ playerIdx: pIdx, zone: "bench", uid: bench.uid }}
-                    className="play-card-wrapper"
-                    style={{ width: "100%", height: "100%" }}
-                  >
-                    <img src={imageUrl(bench.base.card.image) ?? ""} alt={bench.base.card.name} className="play-card-img" />
-                    <div className="card-overlay card-overlay--damage">-{bench.damage}</div>
-                    {bench.attached.length > 0 && (
-                      <div className="card-overlay">Energy: {bench.attached.length}</div>
-                    )}
-                  </Draggable>
-                  <div className="attack-panel">
-                    <button className="sim-btn" onClick={() => void actions.switchWithBench(pIdx, i)}>Swap</button>
-                    <button className="sim-btn" onClick={() => void actions.changeDamage(pIdx, i, 10)}>+10</button>
-                  </div>
-                </Droppable>
-              );
-            })}
+          <div className="bench-container bench-slot">
+            {player.bench.length === 0 && (
+              <span className="bench-label">Bench</span>
+            )}
+            {player.bench.map((bench, i) => (
+              <Droppable key={bench.uid} id={`bench-slot:${pIdx}:${i}`} className="bench-card">
+                <Draggable
+                  id={`bench:${pIdx}:${bench.uid}`}
+                  payload={{ playerIdx: pIdx, zone: "bench", uid: bench.uid }}
+                  className="play-card-wrapper"
+                  style={{ width: "100%", height: "100%" }}
+                >
+                  <img src={imageUrl(bench.base.card.image) ?? ""} alt={bench.base.card.name} className="play-card-img" />
+                  <div className="card-overlay card-overlay--damage">-{bench.damage}</div>
+                  {bench.attached.length > 0 && (
+                    <div className="card-overlay">Energy: {bench.attached.length}</div>
+                  )}
+                </Draggable>
+                <div className="attack-panel">
+                  <button className="sim-btn" onClick={() => void actions.switchWithBench(pIdx, i)}>Swap</button>
+                  <button className="sim-btn" onClick={() => void actions.changeDamage(pIdx, i, 10)}>+10</button>
+                </div>
+              </Droppable>
+            ))}
           </div>
         </Droppable>
 

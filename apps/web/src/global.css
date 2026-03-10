@@ -917,7 +917,7 @@ img {
 /* Grid Layout for the zones */
 .mat-grid {
   display: grid;
-  grid-template-areas: 
+  grid-template-areas:
     "prizes . active . discard"
     "prizes . bench  . deck";
   grid-template-columns:
@@ -1047,23 +1047,40 @@ img {
   border-radius: 4px;
 }
 
-/* Bench row */
-.bench-container {
+/* Bench – single wide slot, sized for 5 cards, grows if more */
+.bench-container.bench-slot {
   display: flex;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  background: none;
+  background: var(--mat-slot-bg);
+  border: 2px dashed var(--mat-slot-border);
   border-radius: 12px;
-  border: none;
-  box-shadow: none;
-  height: auto;
-  width: min(100%, 100%);
-  min-width: 0;
+  height: var(--sim-card-height);
+  min-height: 64px;
+  /* 5 cards wide: 5 × (height × 2.5/3.5) + 4 gaps + padding */
+  min-width: calc(5 * (var(--sim-card-height) * 2.5 / 3.5) + 4 * 0.5rem + 2rem);
+  width: fit-content;
   justify-content: center;
+  align-items: center;
+  position: relative;
+  transition: all 0.2s ease;
 }
 
-.bench-container .card-slot {
-  height: var(--sim-card-height);
+.bench-label {
+  font-size: 0.5rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.1);
+  letter-spacing: 0.1em;
+  pointer-events: none;
+}
+
+.bench-card {
+  height: 100%;
+  aspect-ratio: 2.5 / 3.5;
+  position: relative;
+  border-radius: 8px;
+  overflow: visible;
 }
 
 /* Card in play */
@@ -1264,7 +1281,7 @@ img {
     right: 60px;
   }
 
-  .bench-container {
+  .bench-container.bench-slot {
     flex-wrap: wrap;
     justify-content: center;
   }
@@ -1299,7 +1316,7 @@ img {
     gap: 0.2rem;
   }
 
-  .bench-container {
+  .bench-container.bench-slot {
     padding: 0.35rem;
   }
 
