@@ -79,8 +79,8 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
           </section>
           <div className="side">
             <button
-              className="btn end-turn"
-              disabled={store.phase === "idle"}
+              className={`btn end-turn ${store.phase === "setup" && !currentPlayer.active ? "needs-active" : ""}`}
+              disabled={store.phase === "idle" || (store.phase === "setup" && !currentPlayer.active)}
               onClick={actions.endTurn}
               title="End Turn"
             >
