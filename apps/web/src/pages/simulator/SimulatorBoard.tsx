@@ -56,9 +56,9 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <div className="simulator-page selfplay-page">
-        <div className="playmat-wrapper">
-          <section className="playmat">
+      <div className="sim">
+        <div className="board">
+          <section className="mat">
             <PlayerMat
               pIdx={otherPlayerIdx}
               isTop={true}
@@ -66,8 +66,8 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
               actions={actions}
             />
 
-            <div className="shared-stadium">
-              <div className="card-slot" data-label="STADIUM" />
+            <div className="stadium">
+              <div className="slot" data-label="STADIUM" />
             </div>
 
             <PlayerMat
@@ -77,22 +77,22 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
               actions={actions}
             />
           </section>
-          <div className="playmat-side-actions">
-            <button 
-              className="sim-btn sim-btn--end-turn" 
-              disabled={store.phase === "idle"} 
+          <div className="side">
+            <button
+              className="btn end-turn"
+              disabled={store.phase === "idle"}
               onClick={actions.endTurn}
               title="End Turn"
             >
-              <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                width="24" 
-                height="24" 
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
-                strokeWidth="2.5" 
-                strokeLinecap="round" 
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
                 strokeLinejoin="round"
               >
                 <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
@@ -102,19 +102,19 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
           </div>
         </div>
 
-        <div className="player-controls">
-          <Droppable id={`hand:${store.currentTurn}`} className="hand-container">
-            <div className="hand-row">
+        <div className="controls">
+          <Droppable id={`hand:${store.currentTurn}`} className="hand">
+            <div className="row">
               {currentPlayer.hand.map((card) => (
                 <button
                   key={card.uid}
-                  className={`hand-card-btn ${selectedUid === card.uid ? "hand-card-btn--selected" : ""}`}
+                  className={`hand-card ${selectedUid === card.uid ? "selected" : ""}`}
                   onClick={() => void actions.selectHandCard(store.currentTurn, card.uid)}
                 >
                   <Draggable
                     id={`hand:${store.currentTurn}:${card.uid}`}
                     payload={{ playerIdx: store.currentTurn, zone: "hand", uid: card.uid }}
-                    className="play-card-wrapper"
+                    className="card-wrap"
                     style={{ width: "100%", height: "100%" }}
                   >
                     <img src={imageUrl(card.card.image) ?? ""} alt={card.card.name} />
@@ -123,7 +123,6 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
               ))}
             </div>
           </Droppable>
-
         </div>
       </div>
     </DndContext>
