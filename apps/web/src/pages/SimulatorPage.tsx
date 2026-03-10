@@ -1,11 +1,5 @@
 import { useEffect } from "react";
 import { fetchCardById, fetchCards } from "~/lib/api";
-import {
-  calculateAttackDamage,
-  canPayAttackCost,
-  getCardAttacks,
-  knockoutPrizeCount,
-} from "~/lib/simulator";
 import type { CardDetail, CardSummary } from "~/lib/types";
 import { SimulatorBoard } from "./simulator/SimulatorBoard";
 import { useSimulatorState } from "./simulator/useSimulatorState";
@@ -32,16 +26,12 @@ function createInitialStore(): SimulatorStore {
     turnDrawDone: false,
     selectedHandUid: [null, null],
     selectedPrizeUid: [null, null],
-    selectedAttackIndex: [0, 0],
     revealedPrizeUids: [[], []],
-    detailCache: {},
     nameQueryCache: {},
     logs: [
       "Loading decklists and setting up the game...",
     ],
-    players: [createEmptyPlayer(""), createEmptyPlayer("")],
-    showDecklists: false,
-    showGameLog: false,
+    players: [createEmptyPlayer(), createEmptyPlayer()],
   };
 }
 
@@ -256,11 +246,6 @@ function removePrizeCard(player: PlayerBoard, uid: string): CardInstance | null 
   return card ?? null;
 }
 
-function getSelectedHandCard(player: PlayerBoard, selectedUid: string | null): CardInstance | null {
-  if (!selectedUid) return null;
-  return player.hand.find((c) => c.uid === selectedUid) ?? null;
-}
-
 function hasBasicInHand(hand: CardInstance[]): boolean {
   return hand.some((c) => isBasicPokemon(c.card));
 }
@@ -270,56 +255,6 @@ function autoMulliganUntilBasic(player: PlayerBoard): void {
     player.mulligans += 1;
     player.deck = shuffle([...player.deck, ...player.hand]);
     player.hand = drawFromDeck(player, 7);
-  }
-}
-
-function takePrizeCards(attacker: PlayerBoard, amount: number): number {
-  const toTake = Math.min(amount, attacker.prizes.length);
-  const cards = attacker.prizes.splice(0, toTake);
-  attacker.hand.push(...cards);
-  attacker.takenPrizes += toTake;
-  return toTake;
-}
-
-function promoteBench(player: PlayerBoard): void {
-  if (player.active || player.bench.length === 0) return;
-  const next = player.bench.shift();
-  player.active = next ?? null;
-}
-
-function applyAutoKnockoutCheck(store: SimulatorStore): void {
-  for (let defenderIdx = 0; defenderIdx < 2; defenderIdx += 1) {
-    const defender = store.players[defenderIdx as 0 | 1];
-    const attacker = store.players[(defenderIdx === 0 ? 1 : 0) as 0 | 1];
-
-    const active = defender.active;
-    if (!active) continue;
-
-    const hp = Number(active.base.card.hp ?? 0);
-    if (hp <= 0 || active.damage < hp) continue;
-
-    defender.discard.push(active.base, ...active.attached);
-    defender.active = null;
-
-    const prizeAmount = knockoutPrizeCount(active.base.card.name);
-    const taken = takePrizeCards(attacker, prizeAmount);
-
-    appendLog(
-      store,
-      `P${defenderIdx + 1}'s ${active.base.card.name} was Knocked Out. P${(defenderIdx === 0 ? 1 : 0) + 1} took ${taken} Prize card(s).`,
-    );
-
-    promoteBench(defender);
-
-    if (!defender.active && defender.bench.length === 0) {
-      store.winner = (defenderIdx === 0 ? 1 : 0);
-      appendLog(store, `P${store.winner + 1} wins (opponent has no Pokemon in play).`);
-    }
-
-    if (attacker.prizes.length === 0) {
-      store.winner = (defenderIdx === 0 ? 1 : 0);
-      appendLog(store, `P${store.winner + 1} wins (all Prize cards taken).`);
-    }
   }
 }
 
@@ -339,18 +274,6 @@ function canAct(store: SimulatorStore, playerIdx: 0 | 1, action: string): boolea
   return true;
 }
 
-function canDropToSetupBench(store: SimulatorStore, playerIdx: 0 | 1): boolean {
-  if (store.phase !== "setup" && store.phase !== "playing") return false;
-  return store.players[playerIdx].bench.length < 5;
-}
-
-async function fetchDetailCached(store: SimulatorStore, id: string): Promise<CardDetail> {
-  if (!store.detailCache[id]) {
-    store.detailCache[id] = await fetchCardById(id);
-  }
-  return store.detailCache[id];
-}
-
 export function SimulatorPage() {
   const { store, withStore } = useSimulatorState(createInitialStore);
 
@@ -361,8 +284,8 @@ export function SimulatorPage() {
       const deck2 = await buildDeckFromInput(store, store.deckInput2, "Deck 2");
       if (!deck1 || !deck2) return;
 
-      const p1 = createEmptyPlayer("");
-      const p2 = createEmptyPlayer("");
+      const p1 = createEmptyPlayer();
+      const p2 = createEmptyPlayer();
       p1.deck = deck1;
       p2.deck = deck2;
 
@@ -402,186 +325,6 @@ export function SimulatorPage() {
 
   const selectHandCard = withStore((store, playerIdx: 0 | 1, uid: string) => {
     store.selectedHandUid[playerIdx] = uid;
-  });
-
-  const setSelectedActive = withStore((store, playerIdx: 0 | 1) => {
-    const player = store.players[playerIdx];
-    if (player.active) {
-      appendLog(store, `P${playerIdx + 1} already has an Active Pokemon.`);
-      return;
-    }
-
-    const selected = getSelectedHandCard(player, store.selectedHandUid[playerIdx]);
-    if (!selected || !isBasicPokemon(selected.card)) {
-      appendLog(store, `P${playerIdx + 1}: select a Basic Pokemon from hand.`);
-      return;
-    }
-
-    const card = removeHandCard(player, selected.uid);
-    if (!card) return;
-    player.active = makePokemonInPlay(card);
-    store.selectedHandUid[playerIdx] = null;
-    appendLog(store, `P${playerIdx + 1} set Active: ${card.card.name}.`);
-  });
-
-  const setSelectedBench = withStore((store, playerIdx: 0 | 1) => {
-    const player = store.players[playerIdx];
-    if (!canDropToSetupBench(store, playerIdx)) {
-      appendLog(store, `P${playerIdx + 1} Bench is full.`);
-      return;
-    }
-
-    if (store.phase === "playing" && !canAct(store, playerIdx, "bench a Pokemon")) return;
-
-    const selected = getSelectedHandCard(player, store.selectedHandUid[playerIdx]);
-    if (!selected || !isBasicPokemon(selected.card)) {
-      appendLog(store, `P${playerIdx + 1}: select a Basic Pokemon from hand.`);
-      return;
-    }
-
-    const card = removeHandCard(player, selected.uid);
-    if (!card) return;
-    player.bench.push(makePokemonInPlay(card));
-    store.selectedHandUid[playerIdx] = null;
-    appendLog(store, `P${playerIdx + 1} benched ${card.card.name}.`);
-  });
-
-  const discardSelectedCard = withStore((store, playerIdx: 0 | 1) => {
-    const player = store.players[playerIdx];
-    const selectedUid = store.selectedHandUid[playerIdx];
-    if (!selectedUid) return;
-
-    const card = removeHandCard(player, selectedUid);
-    if (!card) return;
-    player.discard.push(card);
-    store.selectedHandUid[playerIdx] = null;
-    appendLog(store, `P${playerIdx + 1} discarded ${card.card.name}.`);
-  });
-
-  const attachSelectedEnergyTo = withStore((store, playerIdx: 0 | 1, target: "active" | number) => {
-    if (store.phase !== "playing") return;
-    if (!canAct(store, playerIdx, "attach Energy")) return;
-
-    const player = store.players[playerIdx];
-    if (player.energyAttachedThisTurn) {
-      appendLog(store, `P${playerIdx + 1} already manually attached Energy this turn.`);
-      return;
-    }
-
-    const selected = getSelectedHandCard(player, store.selectedHandUid[playerIdx]);
-    if (!selected || selected.card.category !== "Energy") {
-      appendLog(store, `P${playerIdx + 1}: select an Energy card from hand.`);
-      return;
-    }
-
-    const energy = removeHandCard(player, selected.uid);
-    if (!energy) return;
-
-    if (target === "active") {
-      if (!player.active) {
-        player.hand.push(energy);
-        appendLog(store, `P${playerIdx + 1} has no Active Pokemon.`);
-        return;
-      }
-      player.active.attached.push(energy);
-      appendLog(store, `P${playerIdx + 1} attached ${energy.card.name} to Active ${player.active.base.card.name}.`);
-    } else {
-      const bench = player.bench[target];
-      if (!bench) {
-        player.hand.push(energy);
-        return;
-      }
-      bench.attached.push(energy);
-      appendLog(store, `P${playerIdx + 1} attached ${energy.card.name} to Benched ${bench.base.card.name}.`);
-    }
-
-    player.energyAttachedThisTurn = true;
-    store.selectedHandUid[playerIdx] = null;
-  });
-
-  const switchWithBench = withStore((store, playerIdx: 0 | 1, benchIdx: number) => {
-    if (store.phase !== "playing") return;
-    if (!canAct(store, playerIdx, "switch")) return;
-
-    const player = store.players[playerIdx];
-    if (!player.active) return;
-    const bench = player.bench[benchIdx];
-    if (!bench) return;
-
-    const oldActive = player.active;
-    player.active = bench;
-    player.bench[benchIdx] = oldActive;
-    appendLog(store, `P${playerIdx + 1} switched Active with a Benched Pokemon.`);
-  });
-
-  const changeDamage = withStore((store, playerIdx: 0 | 1, target: "active" | number, delta: number) => {
-    const player = store.players[playerIdx];
-    const slot = target === "active" ? player.active : player.bench[target];
-    if (!slot) return;
-
-    slot.damage = Math.max(0, slot.damage + delta);
-    applyAutoKnockoutCheck(store);
-  });
-
-  const setAttackIndex = withStore((store, playerIdx: 0 | 1, index: number) => {
-    store.selectedAttackIndex[playerIdx] = index;
-  });
-
-  const loadCardDetail = withStore(async (store, cardId: string) => {
-    await fetchDetailCached(store, cardId);
-  });
-
-  const useAttack = withStore(async (store) => {
-    if (store.phase !== "playing") {
-      appendLog(store, "Attack is available during playing phase.");
-      return;
-    }
-
-    const attackerIdx = store.currentTurn;
-    const defenderIdx = (attackerIdx === 0 ? 1 : 0) as 0 | 1;
-
-    if (!canAct(store, attackerIdx, "attack")) return;
-
-    if (store.turnNumber === 1 && attackerIdx === store.firstPlayer) {
-      appendLog(store, "First player cannot attack on turn 1.");
-      return;
-    }
-
-    const attacker = store.players[attackerIdx];
-    const defender = store.players[defenderIdx];
-
-    if (!attacker.active || !defender.active) {
-      appendLog(store, "Both sides need an Active Pokemon to attack.");
-      return;
-    }
-
-    const attackerDetail = await fetchDetailCached(store, attacker.active.base.card.id);
-    const defenderDetail = await fetchDetailCached(store, defender.active.base.card.id);
-
-    const attacks = getCardAttacks(attackerDetail);
-    const attackIdx = store.selectedAttackIndex[attackerIdx] ?? 0;
-    const attack = attacks[attackIdx];
-
-    if (!attack) {
-      appendLog(store, `${attacker.active.base.card.name} has no selected attack.`);
-      return;
-    }
-
-    if (!canPayAttackCost(attack, attacker.active.attached)) {
-      appendLog(store, `P${attackerIdx + 1} cannot pay the attack cost for ${attack.name ?? "attack"}.`);
-      return;
-    }
-
-    const damage = calculateAttackDamage({
-      attack,
-      attacker: attackerDetail,
-      defender: defenderDetail,
-    });
-
-    defender.active.damage += damage;
-    appendLog(store, `P${attackerIdx + 1} used ${attack.name ?? "attack"} for ${damage} damage.`);
-
-    applyAutoKnockoutCheck(store);
   });
 
   const endTurn = withStore((store) => {
@@ -652,27 +395,6 @@ export function SimulatorPage() {
     store.selectedPrizeUid[playerIdx] = uid;
   });
 
-  const revealSelectedPrize = withStore((store, playerIdx: 0 | 1) => {
-    const uid = store.selectedPrizeUid[playerIdx];
-    if (!uid) return;
-    if (!store.revealedPrizeUids[playerIdx].includes(uid)) {
-      store.revealedPrizeUids[playerIdx] = [...store.revealedPrizeUids[playerIdx], uid];
-    }
-  });
-
-  const takeSelectedPrizeToHand = withStore((store, playerIdx: 0 | 1) => {
-    const player = store.players[playerIdx];
-    const uid = store.selectedPrizeUid[playerIdx];
-    if (!uid) return;
-
-    const card = removePrizeCard(player, uid);
-    if (!card) return;
-
-    player.hand.push(card);
-    store.revealedPrizeUids[playerIdx] = store.revealedPrizeUids[playerIdx].filter((x) => x !== uid);
-    store.selectedPrizeUid[playerIdx] = null;
-    appendLog(store, `P${playerIdx + 1} took a selected Prize card to hand.`);
-  });
 
   const dropToActive = withStore((store, payload: DragPayload, targetPlayerIdx: 0 | 1) => {
     const sourcePlayer = store.players[payload.playerIdx];
@@ -824,45 +546,14 @@ export function SimulatorPage() {
     appendLog(store, `P${targetPlayerIdx + 1} moved a revealed Prize to hand via drag-and-drop.`);
   });
 
-  const toggleDecklists = withStore((store) => {
-    store.showDecklists = !store.showDecklists;
-  });
-
-  const toggleGameLog = withStore((store) => {
-    store.showGameLog = !store.showGameLog;
-  });
-
-  const setDeckInput1 = withStore((store, value: string) => {
-    store.deckInput1 = value;
-  });
-
-  const setDeckInput2 = withStore((store, value: string) => {
-    store.deckInput2 = value;
-  });
-
   const actions = {
-    useAttack,
-    toggleDecklists,
-    toggleGameLog,
-    setDeckInput1,
-    setDeckInput2,
     selectPrize,
-    revealSelectedPrize,
-    takeSelectedPrizeToHand,
     dropToActive,
     dropToBench,
     dropToBenchSlot,
     dropToDiscard,
     dropToHand,
-    changeDamage,
-    attachSelectedEnergyTo,
-    switchWithBench,
     selectHandCard,
-    setSelectedActive,
-    setSelectedBench,
-    discardSelectedCard,
-    loadCardDetail,
-    setAttackIndex,
     endTurn,
   };
 

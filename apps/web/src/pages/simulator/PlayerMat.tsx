@@ -1,5 +1,4 @@
 import { imageUrl } from "~/lib/api";
-import { getCardAttacks } from "~/lib/simulator";
 import { Draggable, Droppable } from "./DndComponents";
 import type { SimulatorActions, SimulatorStore } from "./types";
 
@@ -12,7 +11,6 @@ interface PlayerMatProps {
 
 export function PlayerMat({ pIdx, isTop, store, actions }: PlayerMatProps) {
   const player = store.players[pIdx];
-  const selectedUid = store.selectedHandUid[pIdx];
   const selectedPrize = store.selectedPrizeUid[pIdx];
 
   return (
@@ -49,10 +47,6 @@ export function PlayerMat({ pIdx, isTop, store, actions }: PlayerMatProps) {
               );
             })}
           </div>
-          <div className="attack-panel">
-            <button className="sim-btn" onClick={() => void actions.revealSelectedPrize(pIdx)}>Reveal</button>
-            <button className="sim-btn" onClick={() => void actions.takeSelectedPrizeToHand(pIdx)}>Take</button>
-          </div>
         </div>
 
         <Droppable id={`active:${pIdx}`} className="zone-active">
@@ -60,12 +54,6 @@ export function PlayerMat({ pIdx, isTop, store, actions }: PlayerMatProps) {
             <div className="card-slot card-slot--active">
               <div className="play-card-wrapper">
                 <img src={imageUrl(player.active.base.card.image) ?? ""} alt={player.active.base.card.name} className="play-card-img" />
-                <div className="card-overlay card-overlay--damage">-{player.active.damage}</div>
-                <div className="card-overlay">Energy: {player.active.attached.length}</div>
-              </div>
-              <div className="attack-panel">
-                <button className="sim-btn" onClick={() => void actions.changeDamage(pIdx, "active", 10)}>+10</button>
-                <button className="sim-btn" onClick={() => void actions.changeDamage(pIdx, "active", -10)}>-10</button>
               </div>
             </div>
           ) : (
@@ -87,15 +75,7 @@ export function PlayerMat({ pIdx, isTop, store, actions }: PlayerMatProps) {
                   style={{ width: "100%", height: "100%" }}
                 >
                   <img src={imageUrl(bench.base.card.image) ?? ""} alt={bench.base.card.name} className="play-card-img" />
-                  <div className="card-overlay card-overlay--damage">-{bench.damage}</div>
-                  {bench.attached.length > 0 && (
-                    <div className="card-overlay">Energy: {bench.attached.length}</div>
-                  )}
                 </Draggable>
-                <div className="attack-panel">
-                  <button className="sim-btn" onClick={() => void actions.switchWithBench(pIdx, i)}>Swap</button>
-                  <button className="sim-btn" onClick={() => void actions.changeDamage(pIdx, i, 10)}>+10</button>
-                </div>
               </Droppable>
             ))}
           </div>
@@ -114,7 +94,7 @@ export function PlayerMat({ pIdx, isTop, store, actions }: PlayerMatProps) {
             {player.discard.length > 0 && (
               <div className="play-card-wrapper">
                 <img src={imageUrl(player.discard[player.discard.length - 1].card.image) ?? ""} alt="Discard" className="play-card-img" />
-                <div className="stack-count">{player.discard.length}</div>
+
               </div>
             )}
           </div>

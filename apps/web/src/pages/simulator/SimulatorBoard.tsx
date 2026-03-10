@@ -6,7 +6,6 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { imageUrl } from "~/lib/api";
-import { getCardAttacks } from "~/lib/simulator";
 import { PlayerMat } from "./PlayerMat";
 import { Draggable, Droppable } from "./DndComponents";
 import type { DragPayload, SimulatorStore, SimulatorActions } from "./types";
@@ -59,7 +58,6 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       <div className="simulator-page selfplay-page">
         <div className="playmat-wrapper">
-          <div className="playmat-spacer" />
           <section className="playmat">
             <PlayerMat
               pIdx={otherPlayerIdx}
@@ -124,48 +122,9 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
                 </button>
               ))}
             </div>
-            <div className="attack-panel">
-              <button className="sim-btn" onClick={() => void actions.setSelectedActive(store.currentTurn)}>To Active</button>
-              <button className="sim-btn" onClick={() => void actions.setSelectedBench(store.currentTurn)}>To Bench</button>
-              <button className="sim-btn sim-btn--danger" onClick={() => void actions.discardSelectedCard(store.currentTurn)}>Discard</button>
-            </div>
           </Droppable>
 
-          {store.phase === "playing" && currentPlayer.active && (
-            <div className="mat-panel attack-panel-main">
-              {!store.detailCache[currentPlayer.active.base.card.id] ? (
-                <button className="sim-btn sim-btn--primary" onClick={() => void actions.loadCardDetail(currentPlayer.active!.base.card.id)}>
-                  Load attacks
-                </button>
-              ) : (
-                <div className="attack-controls">
-                  <select
-                    className="attack-select"
-                    value={String(store.selectedAttackIndex[store.currentTurn])}
-                    onChange={(ev) => void actions.setAttackIndex(store.currentTurn, parseInt((ev.target as HTMLSelectElement).value, 10) || 0)}
-                  >
-                    {getCardAttacks(store.detailCache[currentPlayer.active.base.card.id]).map((atk, aIdx) => (
-                      <option key={`${currentPlayer.active!.base.card.id}-${atk.name}-${aIdx}`} value={aIdx}>
-                        {`${atk.name ?? "Attack"}${atk.damage ? ` (${String(atk.damage)})` : ""}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          )}
         </div>
-
-        {store.showGameLog && (
-          <section className="mat-panel mat-panel--log">
-            <h3>Game Log</h3>
-            <ul>
-              {store.logs.map((line, idx) => (
-                <li key={`log-${idx}-${line}`}>{line}</li>
-              ))}
-            </ul>
-          </section>
-        )}
       </div>
     </DndContext>
   );
