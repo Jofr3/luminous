@@ -10,7 +10,22 @@ import { imagesRoute } from "./routes/images";
 const app = new Hono<AppEnv>();
 
 app.use("*", logger());
-app.use("*", cors());
+app.use(
+  "*",
+  cors({
+    origin: (origin) => {
+      if (!origin) return origin;
+      if (
+        origin === "http://localhost:5173" ||
+        origin.endsWith(".pages.dev") ||
+        origin.endsWith(".workers.dev")
+      ) {
+        return origin;
+      }
+      return null;
+    },
+  }),
+);
 
 app.route("/health", healthRoute);
 app.route("/api/cards", cardsRoute);

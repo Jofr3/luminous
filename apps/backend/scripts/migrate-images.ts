@@ -1,43 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { getPlatformProxy } from "wrangler";
+import { esc, pMap } from "./shared";
 
 const CONCURRENCY = 10;
 const DELAY_MS = 100;
 const DB_NAME = "luminous-db";
 const BACKEND_DIR = resolve(dirname(import.meta.path), "..");
 const OUTPUT_PATH = resolve(BACKEND_DIR, "data/migrate-images.sql");
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function esc(val: string): string {
-  return `'${val.replace(/'/g, "''")}'`;
-}
-
-async function pMap<T, R>(
-  items: T[],
-  fn: (item: T) => Promise<R>,
-  concurrency: number,
-): Promise<R[]> {
-  const results: R[] = [];
-  let index = 0;
-
-  async function worker() {
-    while (index < items.length) {
-      const i = index++;
-      results[i] = await fn(items[i]!);
-    }
-  }
-
-  const workers = Array.from(
-    { length: Math.min(concurrency, items.length) },
-    () => worker(),
-  );
-  await Promise.all(workers);
-  return results;
-}
 
 // ---------------------------------------------------------------------------
 // Main

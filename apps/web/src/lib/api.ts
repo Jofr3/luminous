@@ -10,9 +10,23 @@ export function imageUrl(key: string | null): string | null {
   return `${API_URL}/images/${key}`;
 }
 
+const MAX_CACHE_SIZE = 200;
 const cache = new Map<string, { data: CardListResponse; ts: number }>();
 const cardDetailCache = new Map<string, { data: CardDetail; ts: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function evictOldest(map: Map<string, { ts: number }>) {
+  if (map.size <= MAX_CACHE_SIZE) return;
+  let oldestKey: string | null = null;
+  let oldestTs = Infinity;
+  for (const [key, entry] of map) {
+    if (entry.ts < oldestTs) {
+      oldestTs = entry.ts;
+      oldestKey = key;
+    }
+  }
+  if (oldestKey) map.delete(oldestKey);
+}
 
 export async function fetchCards(params: {
   q?: string;
@@ -65,6 +79,7 @@ export async function fetchCards(params: {
   }
   const data: CardListResponse = await res.json();
   cache.set(key, { data, ts: performance.now() });
+  evictOldest(cache);
   return data;
 }
 
@@ -101,5 +116,6 @@ export async function fetchCardById(id: string): Promise<CardDetail> {
 
   const payload = await res.json() as { data: CardDetail };
   cardDetailCache.set(key, { data: payload.data, ts: performance.now() });
+  evictOldest(cardDetailCache);
   return payload.data;
 }

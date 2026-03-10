@@ -21,6 +21,7 @@ bun.lockb
 .dev.vars
 
 # Environment variables
+.env
 .env.local
 .env.*.local
 

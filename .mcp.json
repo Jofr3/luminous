@@ -9,6 +9,7 @@
       "args": [
         "@bytebase/dbhub@latest", "--transport", "stdio", "--dsn", "${DB_TYPE}://${DB_PATH}"
       ]
-    },
+    }
+  }
 }
 

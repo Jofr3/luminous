@@ -124,7 +124,7 @@ function init() {
   canvas.style.cssText =
     "position:absolute;pointer-events:none;z-index:9999;display:none;";
 
-  gl = canvas.getContext("webgl", { alpha: true })!;
+  gl = canvas.getContext("webgl", { alpha: true });
   if (!gl) return;
 
   const vs = compile(gl.VERTEX_SHADER, VERT);

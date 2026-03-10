@@ -1,0 +1,233 @@
+import { fetchCardById, fetchCards } from "~/lib/api";
+import type { CardDetail, CardSummary } from "~/lib/types";
+import type {
+  CardInstance,
+  DeckLine,
+  PlayerBoard,
+  PokemonInPlay,
+  SimulatorStore,
+} from "./types";
+
+let uidCounter = 0;
+
+export function nextUid(): string {
+  uidCounter += 1;
+  return `sim-${uidCounter}`;
+}
+
+export function appendLog(store: SimulatorStore, message: string): void {
+  store.logs = [message, ...store.logs].slice(0, 150);
+}
+
+export function shuffle<T>(arr: T[]): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+export function drawFromDeck(player: PlayerBoard, count: number): CardInstance[] {
+  const out: CardInstance[] = [];
+  for (let i = 0; i < count && player.deck.length > 0; i += 1) {
+    const card = player.deck.shift();
+    if (card) out.push(card);
+  }
+  return out;
+}
+
+export function isBasicPokemon(card: CardSummary): boolean {
+  return card.category === "Pokemon" && card.stage === "Basic";
+}
+
+export function makePokemonInPlay(instance: CardInstance): PokemonInPlay {
+  return {
+    uid: nextUid(),
+    base: instance,
+    damage: 0,
+    attached: [],
+  };
+}
+
+export function createEmptyPlayer(): PlayerBoard {
+  return {
+    deck: [],
+    hand: [],
+    prizes: [],
+    discard: [],
+    active: null,
+    bench: [],
+    takenPrizes: 0,
+    mulligans: 0,
+    energyAttachedThisTurn: false,
+  };
+}
+
+export function parseDecklist(input: string): { lines: DeckLine[]; errors: string[] } {
+  const lines: DeckLine[] = [];
+  const errors: string[] = [];
+
+  const rawLines = input
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .filter((l) => !l.startsWith("#") && !l.startsWith("//"));
+
+  for (const raw of rawLines) {
+    const m = raw.match(/^(\d+)\s*x?\s+(.+)$/i);
+    if (!m) {
+      errors.push(`Could not parse line: \"${raw}\"`);
+      continue;
+    }
+
+    const qty = parseInt(m[1], 10);
+    const query = m[2].trim();
+
+    if (!qty || qty < 1) {
+      errors.push(`Invalid quantity in line: \"${raw}\"`);
+      continue;
+    }
+
+    if (!query) {
+      errors.push(`Missing card name/id in line: \"${raw}\"`);
+      continue;
+    }
+
+    lines.push({ qty, query });
+  }
+
+  return { lines, errors };
+}
+
+function looksLikeCardId(query: string): boolean {
+  return /^[a-z0-9.]+\-\d+[a-z]?$/i.test(query.trim());
+}
+
+function summaryFromDetail(detail: CardDetail): CardSummary {
+  return {
+    id: detail.id,
+    local_id: detail.local_id,
+    name: detail.name,
+    image: detail.image,
+    category: detail.category,
+    rarity: detail.rarity,
+    hp: detail.hp,
+    stage: detail.stage ?? null,
+    trainer_type: detail.trainer_type ?? null,
+    energy_type: detail.energy_type ?? null,
+    suffix: detail.suffix ?? null,
+    set_id: detail.set_id,
+    set_name: detail.set_name,
+  };
+}
+
+function normalizeName(v: string): string {
+  return v.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+export async function resolveCardSummary(store: SimulatorStore, query: string): Promise<CardSummary | null> {
+  const key = normalizeName(query);
+  if (store.nameQueryCache[key] !== undefined) {
+    return store.nameQueryCache[key];
+  }
+
+  if (looksLikeCardId(query)) {
+    try {
+      const detail = await fetchCardById(query.trim());
+      const summary = summaryFromDetail(detail);
+      store.nameQueryCache[key] = summary;
+      return summary;
+    } catch {
+      store.nameQueryCache[key] = null;
+      return null;
+    }
+  }
+
+  const res = await fetchCards({ q: query, limit: 100 });
+  if (res.data.length === 0) {
+    store.nameQueryCache[key] = null;
+    return null;
+  }
+
+  const exact = res.data.find((c) => normalizeName(c.name) === key) ?? res.data[0];
+  store.nameQueryCache[key] = exact;
+  return exact;
+}
+
+export async function buildDeckFromInput(store: SimulatorStore, input: string, label: string): Promise<CardInstance[] | null> {
+  const parsed = parseDecklist(input);
+  if (parsed.errors.length > 0) {
+    for (const err of parsed.errors) appendLog(store, `${label}: ${err}`);
+    return null;
+  }
+
+  const deck: CardInstance[] = [];
+  for (const line of parsed.lines) {
+    const summary = await resolveCardSummary(store, line.query);
+    if (!summary) {
+      appendLog(store, `${label}: card not found for \"${line.query}\".`);
+      return null;
+    }
+
+    for (let i = 0; i < line.qty; i += 1) {
+      deck.push({ uid: nextUid(), card: summary });
+    }
+  }
+
+  if (deck.length !== 60) {
+    appendLog(store, `${label}: deck has ${deck.length} cards. It must have exactly 60.`);
+    return null;
+  }
+
+  return shuffle(deck);
+}
+
+export function removeHandCard(player: PlayerBoard, uid: string): CardInstance | null {
+  const idx = player.hand.findIndex((c) => c.uid === uid);
+  if (idx === -1) return null;
+  const [card] = player.hand.splice(idx, 1);
+  return card ?? null;
+}
+
+export function removeBenchPokemon(player: PlayerBoard, uid: string): PokemonInPlay | null {
+  const idx = player.bench.findIndex((p) => p.uid === uid);
+  if (idx === -1) return null;
+  const [slot] = player.bench.splice(idx, 1);
+  return slot ?? null;
+}
+
+export function removePrizeCard(player: PlayerBoard, uid: string): CardInstance | null {
+  const idx = player.prizes.findIndex((c) => c.uid === uid);
+  if (idx === -1) return null;
+  const [card] = player.prizes.splice(idx, 1);
+  return card ?? null;
+}
+
+export function hasBasicInHand(hand: CardInstance[]): boolean {
+  return hand.some((c) => isBasicPokemon(c.card));
+}
+
+export function autoMulliganUntilBasic(player: PlayerBoard): void {
+  while (!hasBasicInHand(player.hand)) {
+    player.mulligans += 1;
+    player.deck = shuffle([...player.deck, ...player.hand]);
+    player.hand = drawFromDeck(player, 7);
+  }
+}
+
+export function canAct(store: SimulatorStore, playerIdx: 0 | 1, action: string): boolean {
+  if (store.winner) return false;
+
+  if (store.phase !== "playing") {
+    appendLog(store, `Cannot ${action} before setup is finalized.`);
+    return false;
+  }
+
+  if (store.currentTurn !== playerIdx) {
+    appendLog(store, `only current player can ${action}.`);
+    return false;
+  }
+
+  return true;
+}
