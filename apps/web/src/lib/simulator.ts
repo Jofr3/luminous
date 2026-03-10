@@ -84,7 +84,6 @@ export interface InPlayPokemon {
 }
 
 export interface SimulatorPlayer {
-  name: string;
   deck: DeckCard[];
   hand: DeckCard[];
   discard: DeckCard[];
@@ -279,7 +278,7 @@ export function initGameState(playerDecks: [DeckCard[], DeckCard[]]): SimulatorS
 
   const players: [SimulatorPlayer, SimulatorPlayer] = [
     {
-      name: "Player 1",
+      name: "",
       deck: deck0,
       hand: draw(deck0, 7),
       discard: [],
@@ -290,7 +289,7 @@ export function initGameState(playerDecks: [DeckCard[], DeckCard[]]): SimulatorS
       energyAttachedThisTurn: false,
     },
     {
-      name: "Player 2",
+      name: "",
       deck: deck1,
       hand: draw(deck1, 7),
       discard: [],
@@ -327,7 +326,7 @@ export function initGameState(playerDecks: [DeckCard[], DeckCard[]]): SimulatorS
     currentPlayer: firstPlayer,
     winner: null,
     logs: [
-      `Setup complete. ${players[firstPlayer].name} goes first.`,
+      `Setup complete. P${firstPlayer + 1} goes first.`,
       `Mulligans: P1 ${mulliganA}, P2 ${mulliganB}.`,
     ],
     players,
@@ -344,12 +343,12 @@ export function startTurnDraw(state: SimulatorState): { ok: boolean; message: st
     state.winner = state.currentPlayer === 0 ? 1 : 0;
     return {
       ok: false,
-      message: `${player.name} cannot draw at turn start and loses the game.`,
+      message: `P${state.currentPlayer + 1} cannot draw at turn start and loses the game.`,
     };
   }
 
   player.hand.push(...drawn);
-  return { ok: true, message: `${player.name} drew 1 card.` };
+  return { ok: true, message: `P${state.currentPlayer + 1} drew 1 card.` };
 }
 
 function inferEnergyType(card: CardSummary): string | null {
@@ -478,26 +477,26 @@ export function applyPokemonCheckup(state: SimulatorState): string[] {
 
     if (active.special.poisoned) {
       active.damage += 10;
-      updates.push(`${player.name} Active is Poisoned (+10).`);
+      updates.push(`P${pIndex + 1} Active is Poisoned (+10).`);
     }
 
     if (active.special.burned) {
       active.damage += 20;
       const cured = Math.random() < 0.5;
       if (cured) active.special.burned = false;
-      updates.push(`${player.name} Active is Burned (+20)${cured ? " and recovered" : ""}.`);
+      updates.push(`P${pIndex + 1} Active is Burned (+20)${cured ? " and recovered" : ""}.`);
     }
 
     if (active.special.asleep) {
       const woke = Math.random() < 0.5;
       if (woke) active.special.asleep = false;
-      updates.push(`${player.name} Active ${woke ? "woke up" : "stays Asleep"}.`);
+      updates.push(`P${pIndex + 1} Active ${woke ? "woke up" : "stays Asleep"}.`);
     }
 
     if (active.special.paralyzed) {
       if ((active.paralyzedTurnApplied ?? -1) <= state.turn - 1) {
         active.special.paralyzed = false;
-        updates.push(`${player.name} Active recovered from Paralyzed.`);
+        updates.push(`P${pIndex + 1} Active recovered from Paralyzed.`);
       }
     }
   }

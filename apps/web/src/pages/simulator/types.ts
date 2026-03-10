@@ -27,7 +27,6 @@ export interface DragPayload {
 }
 
 export interface PlayerBoard {
-  name: string;
   deck: CardInstance[];
   hand: CardInstance[];
   prizes: CardInstance[];
@@ -41,7 +40,7 @@ export interface PlayerBoard {
 
 export interface SimulatorStore {
   phase: Phase;
-  winner: string | null;
+  winner: number | null;
   coinFlipResult: "Heads" | "Tails" | null;
   deckInput1: string;
   deckInput2: string;

@@ -33,7 +33,6 @@ interface SimulatorActions {
   setSelectedActive: (playerIdx: 0 | 1) => Promise<void>;
   setSelectedBench: (playerIdx: 0 | 1) => Promise<void>;
   discardSelectedCard: (playerIdx: 0 | 1) => Promise<void>;
-  confirmSetup: () => Promise<void>;
   loadCardDetail: (cardId: string) => Promise<void>;
   setAttackIndex: (playerIdx: 0 | 1, index: number) => Promise<void>;
   endTurn: () => Promise<void>;
@@ -136,27 +135,6 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       <div className="simulator-page selfplay-page">
-        <div className="mat-toolbar">
-          <div className="mat-toolbar__left">
-            <button className="sim-btn sim-btn--danger" disabled={store.phase !== "playing"} onClick={actions.useAttack}>
-              Attack
-            </button>
-          </div>
-          <div className="mat-toolbar__right">
-            <button
-              className={`sim-btn ${store.showDecklists ? "sim-btn--toggled" : ""}`}
-              onClick={() => void actions.toggleDecklists()}
-            >
-              Decklists
-            </button>
-            <button
-              className={`sim-btn ${store.showGameLog ? "sim-btn--toggled" : ""}`}
-              onClick={() => void actions.toggleGameLog()}
-            >
-              Log
-            </button>
-          </div>
-        </div>
 
         <div className="playmat-wrapper">
           <section className="playmat">
@@ -183,9 +161,6 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
                   key={`player-board-${pIdx}-${store.currentTurn}`}
                   className={`mat-half ${isTop ? "mat-half--top" : "mat-half--bottom"}`}
                 >
-                  <div className="mat-half__header">
-                    <span className="mat-half__name">{player.name} ({seatLabel})</span>
-                  </div>
 
                   <div className="mat-grid">
                     <div className="zone-prizes">
@@ -233,7 +208,6 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
                           <div className="attack-panel">
                             <button className="sim-btn" onClick={() => void actions.changeDamage(pIdx, "active", 10)}>+10</button>
                             <button className="sim-btn" onClick={() => void actions.changeDamage(pIdx, "active", -10)}>-10</button>
-                            <button className="sim-btn" onClick={() => void actions.attachSelectedEnergyTo(pIdx, "active")}>Attach</button>
                           </div>
                         </div>
                       ) : (
@@ -262,7 +236,6 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
                               </Draggable>
                               <div className="attack-panel">
                                 <button className="sim-btn" onClick={() => void actions.switchWithBench(pIdx, i)}>Swap</button>
-                                <button className="sim-btn" onClick={() => void actions.attachSelectedEnergyTo(pIdx, i)}>Attach</button>
                                 <button className="sim-btn" onClick={() => void actions.changeDamage(pIdx, i, 10)}>+10</button>
                               </div>
                             </Droppable>
@@ -274,9 +247,7 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
                     <div className="zone-deck">
                       <div className="card-slot" data-label="Deck">
                         {player.deck.length > 0 && (
-                          <div className="play-card-wrapper">
-                            <div className="stack-count">{player.deck.length}</div>
-                          </div>
+                          <div className="play-card-wrapper" />
                         )}
                       </div>
                     </div>
@@ -321,13 +292,6 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
                     </Droppable>
                   )}
 
-                  {!isTop && store.phase === "setup" && store.currentTurn === pIdx && (
-                    <div className="mat-panel setup-ready-panel">
-                      <button className="sim-btn sim-btn--primary" onClick={actions.confirmSetup}>
-                        Ready
-                      </button>
-                    </div>
-                  )}
 
                   {!isTop && store.phase === "playing" && store.currentTurn === pIdx && player.active && (
                     <div className="mat-panel attack-panel-main">
@@ -348,7 +312,6 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
                               </option>
                             ))}
                           </select>
-                          <button className="sim-btn sim-btn--danger" onClick={actions.useAttack}>Use Attack</button>
                         </div>
                       )}
                     </div>
@@ -358,7 +321,7 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
             })}
           </section>
           <div className="playmat-side-actions">
-            <button className="sim-btn sim-btn--end-turn" disabled={store.phase !== "playing"} onClick={actions.endTurn}>
+            <button className="sim-btn sim-btn--end-turn" disabled={store.phase === "idle"} onClick={actions.endTurn}>
               End Turn
             </button>
           </div>
