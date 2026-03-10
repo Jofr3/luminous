@@ -801,49 +801,52 @@ img {
 
 .playmat-wrapper {
   display: flex;
+  justify-content: center;
   align-items: stretch;
-  gap: 1rem;
-  max-width: 1500px;
-  margin: 0 auto;
-  flex: 1;
   width: 100%;
-  padding: 1rem;
+  height: 100%;
+  flex: 1;
   box-sizing: border-box;
   overflow: hidden;
+  background: var(--bg);
+}
+
+.playmat-spacer {
+  width: 64px;
+  flex-shrink: 0;
 }
 
 .playmat-side-actions {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   align-items: center;
   flex-shrink: 0;
+  width: 64px;
 }
 
 .sim-btn--end-turn {
-  writing-mode: vertical-lr;
-  text-orientation: mixed;
-  padding: 1.5rem 0.75rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  padding: 0.75rem;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0;
   background: var(--mat-accent, #6366f1);
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: 50%;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: all 150ms ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 
 .sim-btn--end-turn:hover:not(:disabled) {
   background: var(--accent-hover, #818cf8);
+  transform: scale(1.1);
+  box-shadow: 0 0 15px rgba(99, 102, 241, 0.4);
 }
-
-.sim-btn--end-turn:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
 .playmat {
   --mat-bg: transparent;
   --mat-accent: #6366f1;
@@ -853,15 +856,15 @@ img {
   --mat-slot-bg: rgba(0, 0, 0, 0.4);
   --mat-slot-border: rgba(255, 255, 255, 0.08);
 
-  padding: 1rem;
   position: relative;
-  overflow: hidden;
-  flex: 1;
-  min-width: 0;
+  overflow: visible;
+  flex: 0 1 1200px;
   display: flex;
   flex-direction: column;
-  justify-content: space-around;
+  justify-content: center;
+  gap: 0;
 }
+
 
 .playmat::before {
   content: "";
@@ -872,46 +875,22 @@ img {
 
 /* Half of the mat (one player's side) */
 .mat-half {
-  flex: 1;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-height: 0;
+  min-height: 360px;
   position: relative;
-  padding: 0.5rem 1rem;
+  padding: 0;
 }
 
+
 .mat-half--top {
-  padding-bottom: 0.5rem;
+  padding-bottom: 2rem;
 }
 
 .mat-half--bottom {
-  padding-top: 0.5rem;
-}
-
-.mat-half__header {
-  position: absolute;
-  top: 0;
-  left: 1rem;
-  right: 1rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  transform: translateY(-50%);
-  z-index: 10;
-}
-
-.mat-half__name {
-  background: #1e293b;
-  padding: 0.25rem 1rem;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 800;
-  color: #fff;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  border: 1px solid #334155;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+  padding-top: 2rem;
 }
 
 /* Grid Layout for the zones */
@@ -920,27 +899,42 @@ img {
   grid-template-areas: 
     "prizes . active . discard"
     "prizes . bench  . deck";
-  grid-template-columns: 100px 1fr 120px 1fr 100px;
-  grid-template-rows: 1fr 1fr;
+  grid-template-columns: 120px 1fr 500px 1fr 120px;
+  grid-template-rows: 160px 160px;
   gap: 1rem;
+  width: 100%;
+  margin: 0 auto;
+  justify-items: center;
   align-items: center;
-  flex: 1;
-  min-height: 0;
 }
 
-/* Zone Area Definitions */
-.zone-prizes { grid-area: prizes; }
-.zone-active { grid-area: active; justify-self: center; align-self: center; }
-.zone-bench { grid-area: bench; justify-self: center; align-self: center; }
-.zone-deck { grid-area: deck; justify-self: right; }
-.zone-discard { grid-area: discard; justify-self: right; }
+.zone-prizes { grid-area: prizes; width: 100%; display: flex; justify-content: center; align-items: center; }
+.zone-active { grid-area: active; width: 100%; display: flex; justify-content: center; align-items: center; }
+.zone-bench  { grid-area: bench;  width: 100%; display: flex; justify-content: center; align-items: center; }
+.zone-deck   { grid-area: deck;   width: 100%; display: flex; justify-content: center; align-items: center; }
+.zone-discard { grid-area: discard; width: 100%; display: flex; justify-content: center; align-items: center; }
 
 .shared-stadium {
   position: absolute;
   top: 50%;
-  left: 175px;
-  transform: translateY(-50%);
+  left: calc(50% + 315px);
+  transform: translate(-50%, -50%);
   z-index: 40;
+}
+
+.player-controls {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(0, 0, 0, 0.6);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.hand-container {
+  margin-top: 0;
+  padding: 0.5rem;
 }
 
 /* Slot Styles */
@@ -961,7 +955,7 @@ img {
 .card-slot::after {
   content: attr(data-label);
   position: absolute;
-  font-size: 0.55rem;
+  font-size: 0.5rem;
   font-weight: 800;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.1);
@@ -1029,7 +1023,7 @@ img {
 }
 
 .bench-container .card-slot {
-  width: 85px;
+  width: 80px;
 }
 
 /* Card in play */
@@ -1074,21 +1068,15 @@ img {
   border-color: #7f1d1d;
 }
 
-/* Hand styles */
-.hand-container {
-  margin-top: 1rem;
-  padding: 0.5rem;
-}
-
 .hand-row {
   display: flex;
   justify-content: center;
-  gap: -1rem; /* Overlap effect */
+  gap: -2rem; /* Overlap effect */
   perspective: 1000px;
 }
 
 .hand-card-btn {
-  width: 100px;
+  width: 80px;
   aspect-ratio: 2.5 / 3.5;
   background: none;
   border: none;
@@ -1099,7 +1087,7 @@ img {
 }
 
 .hand-card-btn:not(:first-child) {
-  margin-left: -20px;
+  margin-left: -40px;
 }
 
 .hand-card-btn:hover {
@@ -1144,13 +1132,11 @@ img {
 }
 
 /* Rotate UI elements back so they are upright and readable */
-.mat-half--top .card-overlay,
+.mat-half--top .card-slot,
 .mat-half--top .sim-btn,
 .mat-half--top .attack-panel,
 .mat-half--top .stack-count,
-.mat-half--top .card-back-icon,
-.mat-half--top .card-slot::after,
-.mat-half--top .card-slot::before {
+.mat-half--top .card-back-icon {
   transform: rotate(180deg);
 }
 
