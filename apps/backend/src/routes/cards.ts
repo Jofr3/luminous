@@ -3,6 +3,12 @@ import type { AppEnv } from "../types";
 
 const cardsRoute = new Hono<AppEnv>();
 
+function parseIntegerParam(value: string): number | null {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 cardsRoute.get("/filters", async (c) => {
   const db = c.env.DB;
 
@@ -103,13 +109,15 @@ cardsRoute.get("/", async (c) => {
     conditions.push("c.retreat = ?");
     params.push(retreat);
   }
-  if (hpMin) {
+  const hpMinValue = parseIntegerParam(hpMin);
+  if (hpMinValue !== null) {
     conditions.push("CAST(c.hp AS INTEGER) >= ?");
-    params.push(parseInt(hpMin, 10));
+    params.push(hpMinValue);
   }
-  if (hpMax) {
+  const hpMaxValue = parseIntegerParam(hpMax);
+  if (hpMaxValue !== null) {
     conditions.push("CAST(c.hp AS INTEGER) <= ?");
-    params.push(parseInt(hpMax, 10));
+    params.push(hpMaxValue);
   }
   if (legalStandard) {
     conditions.push("c.legal_standard = 1");

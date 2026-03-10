@@ -162,9 +162,18 @@ export async function buildDeckFromInput(store: SimulatorStore, input: string, l
     return null;
   }
 
+  const uniqueQueries = [...new Set(parsed.lines.map((line) => line.query))];
+  const summaries = new Map<string, CardSummary | null>();
+
+  await Promise.all(
+    uniqueQueries.map(async (query) => {
+      summaries.set(query, await resolveCardSummary(store, query));
+    }),
+  );
+
   const deck: CardInstance[] = [];
   for (const line of parsed.lines) {
-    const summary = await resolveCardSummary(store, line.query);
+    const summary = summaries.get(line.query) ?? null;
     if (!summary) {
       appendLog(store, `${label}: card not found for \"${line.query}\".`);
       return null;
@@ -208,16 +217,22 @@ export function hasBasicInHand(hand: CardInstance[]): boolean {
   return hand.some((c) => isBasicPokemon(c.card));
 }
 
-export function autoMulliganUntilBasic(player: PlayerBoard): void {
+export function autoMulliganUntilBasic(player: PlayerBoard): boolean {
+  if (!hasBasicInHand([...player.hand, ...player.deck])) {
+    return false;
+  }
+
   while (!hasBasicInHand(player.hand)) {
     player.mulligans += 1;
     player.deck = shuffle([...player.deck, ...player.hand]);
     player.hand = drawFromDeck(player, 7);
   }
+
+  return true;
 }
 
 export function canAct(store: SimulatorStore, playerIdx: 0 | 1, action: string): boolean {
-  if (store.winner) return false;
+  if (store.winner !== null) return false;
 
   if (store.phase !== "playing") {
     appendLog(store, `Cannot ${action} before setup is finalized.`);

@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build.types": "tsc --incremental --noEmit",
+    "build.types": "bunx tsc --incremental --noEmit",
     "preview": "vite preview --open",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

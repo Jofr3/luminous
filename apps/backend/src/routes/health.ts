@@ -8,7 +8,7 @@ healthRoute.get("/", async (c) => {
     const result = await c.env.DB.prepare("SELECT 1 as ok").first();
     return c.json({ status: "ok", db: result ? "connected" : "error" });
   } catch {
-    return c.json({ status: "ok", db: "unavailable" }, 200);
+    return c.json({ status: "error", db: "unavailable" }, 503);
   }
 });
 

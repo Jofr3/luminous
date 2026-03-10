@@ -1,4 +1,9 @@
-import type { CardDetail, CardListResponse, FilterOptions } from "./types";
+import type {
+  CardDetail,
+  CardListResponse,
+  FilterOptions,
+  SetListResponse,
+} from "./types";
 
 export const API_URL =
   import.meta.env.VITE_API_URL ??
@@ -26,6 +31,65 @@ function evictOldest(map: Map<string, { ts: number }>) {
     }
   }
   if (oldestKey) map.delete(oldestKey);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isCardListResponse(value: unknown): value is CardListResponse {
+  if (!isRecord(value)) return false;
+  return (
+    Array.isArray(value.data) &&
+    typeof value.total === "number" &&
+    typeof value.hasMore === "boolean"
+  );
+}
+
+function isSetListResponse(value: unknown): value is SetListResponse {
+  return isRecord(value) && Array.isArray(value.data);
+}
+
+function isCardDetail(value: unknown): value is CardDetail {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.local_id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.category === "string" &&
+    typeof value.set_id === "string"
+  );
+}
+
+function isFilterOptions(value: unknown): value is FilterOptions {
+  if (!isRecord(value) || !isRecord(value.hp)) return false;
+
+  return (
+    Array.isArray(value.categories) &&
+    Array.isArray(value.rarities) &&
+    Array.isArray(value.stages) &&
+    Array.isArray(value.trainer_types) &&
+    Array.isArray(value.energy_types) &&
+    Array.isArray(value.types) &&
+    Array.isArray(value.weaknesses) &&
+    Array.isArray(value.resistances) &&
+    Array.isArray(value.retreats) &&
+    typeof value.hp.min === "number" &&
+    typeof value.hp.max === "number" &&
+    Array.isArray(value.regulation_marks)
+  );
+}
+
+function parseJson<T>(
+  value: unknown,
+  guard: (input: unknown) => input is T,
+  message: string,
+): T {
+  if (!guard(value)) {
+    throw new Error(message);
+  }
+
+  return value;
 }
 
 export async function fetchCards(params: {
@@ -77,7 +141,11 @@ export async function fetchCards(params: {
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
-  const data: CardListResponse = await res.json();
+  const data = parseJson(
+    await res.json(),
+    isCardListResponse,
+    "Invalid cards payload",
+  );
   cache.set(key, { data, ts: performance.now() });
   evictOldest(cache);
   return data;
@@ -94,10 +162,23 @@ export async function fetchFilters(): Promise<FilterOptions> {
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
-  const data: FilterOptions = await res.json();
+  const data = parseJson(
+    await res.json(),
+    isFilterOptions,
+    "Invalid filters payload",
+  );
   filtersCache.data = data;
   filtersCache.ts = performance.now();
   return data;
+}
+
+export async function fetchSets(): Promise<SetListResponse> {
+  const res = await fetch(`${API_URL}/api/sets`);
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  return parseJson(await res.json(), isSetListResponse, "Invalid sets payload");
 }
 
 export async function fetchCardById(id: string): Promise<CardDetail> {
@@ -114,7 +195,11 @@ export async function fetchCardById(id: string): Promise<CardDetail> {
     throw new Error(`API error: ${res.status}`);
   }
 
-  const payload = await res.json() as { data: CardDetail };
+  const payload = await res.json();
+  if (!isRecord(payload) || !isCardDetail(payload.data)) {
+    throw new Error("Invalid card detail payload");
+  }
+
   cardDetailCache.set(key, { data: payload.data, ts: performance.now() });
   evictOldest(cardDetailCache);
   return payload.data;

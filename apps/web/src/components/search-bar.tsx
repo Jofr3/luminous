@@ -15,6 +15,14 @@ export function SearchBar({ searchParams, setSearchParams }: SearchBarProps) {
     inputRef.current.value = searchParams.get("q") ?? "";
   }, [searchParams]);
 
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
   const doSearch = (value: string) => {
     const params = new URLSearchParams(searchParams.toString());
     const trimmed = value.trim();

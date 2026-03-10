@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
+import { getCorsOrigin } from "../lib/cors";
 
 const imagesRoute = new Hono<AppEnv>();
 
@@ -22,12 +23,19 @@ imagesRoute.get("/*", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const headers = new Headers({
-    "Content-Type": "image/webp",
-    "Cache-Control": "public, max-age=31536000, immutable",
-    "ETag": object.etag,
-    "Access-Control-Allow-Origin": "*",
-  });
+  const headers = new Headers();
+  headers.set(
+    "Content-Type",
+    object.httpMetadata?.contentType || "application/octet-stream",
+  );
+  headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  headers.set("ETag", object.etag);
+
+  const origin = getCorsOrigin(c.req.header("Origin"), c.env);
+  if (origin) {
+    headers.set("Access-Control-Allow-Origin", origin);
+    headers.set("Vary", "Origin");
+  }
 
   const response = new Response(object.body, { headers });
 

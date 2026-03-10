@@ -6,6 +6,7 @@ import { healthRoute } from "./routes/health";
 import { cardsRoute } from "./routes/cards";
 import { setsRoute } from "./routes/sets";
 import { imagesRoute } from "./routes/images";
+import { getCorsOrigin } from "./lib/cors";
 
 const app = new Hono<AppEnv>();
 
@@ -13,17 +14,7 @@ app.use("*", logger());
 app.use(
   "*",
   cors({
-    origin: (origin) => {
-      if (!origin) return origin;
-      if (
-        origin === "http://localhost:5173" ||
-        origin.endsWith(".pages.dev") ||
-        origin.endsWith(".workers.dev")
-      ) {
-        return origin;
-      }
-      return null;
-    },
+    origin: (origin, c) => getCorsOrigin(origin, c.env),
   }),
 );
 
