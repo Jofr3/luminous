@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { getPlatformProxy } from "wrangler";
 import type { SerieBrief, Serie, Set, Card } from "./tcgdex-types";
-import { esc, cardInsert, pMap } from "./shared";
+import { esc, cardInserts, pMap } from "./shared";
 
 const API_BASE = "https://api.tcgdex.net/v2/en";
 const CONCURRENCY = 10;
@@ -152,7 +152,7 @@ async function main() {
 
       for (const card of cards) {
         if (card) {
-          sql.push(cardInsert(card));
+          sql.push(...cardInserts(card));
           totalCards++;
         }
       }

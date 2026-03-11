@@ -15,6 +15,39 @@ export function nextUid(): string {
   return `sim-${uidCounter}`;
 }
 
+export function syncUidCounterFromStore(store: SimulatorStore): void {
+  let maxUid = 0;
+
+  const readUid = (uid: string | null | undefined) => {
+    if (!uid) return;
+    const match = uid.match(/^sim-(\d+)$/);
+    if (!match) return;
+    const parsed = Number.parseInt(match[1], 10);
+    if (Number.isFinite(parsed)) {
+      maxUid = Math.max(maxUid, parsed);
+    }
+  };
+
+  for (const player of store.players) {
+    for (const card of player.deck) readUid(card.uid);
+    for (const card of player.hand) readUid(card.uid);
+    for (const card of player.prizes) readUid(card.uid);
+    for (const card of player.discard) readUid(card.uid);
+
+    readUid(player.active?.uid);
+    readUid(player.active?.base.uid);
+    for (const card of player.active?.attached ?? []) readUid(card.uid);
+
+    for (const pokemon of player.bench) {
+      readUid(pokemon.uid);
+      readUid(pokemon.base.uid);
+      for (const card of pokemon.attached) readUid(card.uid);
+    }
+  }
+
+  uidCounter = Math.max(uidCounter, maxUid);
+}
+
 export function appendLog(store: SimulatorStore, message: string): void {
   store.logs = [message, ...store.logs].slice(0, 150);
 }
@@ -41,12 +74,17 @@ export function isBasicPokemon(card: CardSummary): boolean {
   return card.category === "Pokemon" && card.stage === "Basic";
 }
 
-export function makePokemonInPlay(instance: CardInstance): PokemonInPlay {
+export function makePokemonInPlay(instance: CardInstance, turnNumber = 0): PokemonInPlay {
   return {
     uid: nextUid(),
     base: instance,
     damage: 0,
     attached: [],
+    specialConditions: [],
+    poisonDamage: 10,
+    burnDamage: 20,
+    turnPlayedOrEvolved: turnNumber,
+    usedAbilityThisTurn: false,
   };
 }
 
@@ -61,6 +99,8 @@ export function createEmptyPlayer(): PlayerBoard {
     takenPrizes: 0,
     mulligans: 0,
     energyAttachedThisTurn: false,
+    supporterPlayedThisTurn: false,
+    retreatedThisTurn: false,
   };
 }
 
@@ -117,6 +157,13 @@ function summaryFromDetail(detail: CardDetail): CardSummary {
     trainer_type: detail.trainer_type ?? null,
     energy_type: detail.energy_type ?? null,
     suffix: detail.suffix ?? null,
+    retreat: detail.retreat ?? null,
+    effect: detail.effect ?? null,
+    types: detail.types ?? [],
+    attacks: detail.attacks ?? [],
+    abilities: detail.abilities ?? [],
+    weaknesses: detail.weaknesses ?? [],
+    resistances: detail.resistances ?? [],
     set_id: detail.set_id,
     set_name: detail.set_name,
   };

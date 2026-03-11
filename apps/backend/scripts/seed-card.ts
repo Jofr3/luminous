@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { getPlatformProxy } from "wrangler";
 import type { Card } from "./tcgdex-types";
-import { cardInsert } from "./shared";
+import { cardInserts } from "./shared";
 
 const API_BASE = "https://api.tcgdex.net/v2/en";
 const BACKEND_DIR = resolve(dirname(import.meta.path), "..");
@@ -55,7 +55,7 @@ async function main() {
   }
 
   // Write and apply SQL
-  const sql = cardInsert(card);
+  const sql = cardInserts(card).join("\n");
   mkdirSync(dirname(OUTPUT_PATH), { recursive: true });
   writeFileSync(OUTPUT_PATH, sql + "\n");
 

@@ -1,3 +1,4 @@
+import { parseDamage } from "@luminous/engine";
 import type { Card } from "./tcgdex-types";
 
 export function esc(val: unknown): string {
@@ -8,7 +9,10 @@ export function esc(val: unknown): string {
   return `'${s}'`;
 }
 
-export function cardInsert(c: Card): string {
+export function cardInserts(c: Card): string[] {
+  const stmts: string[] = [];
+
+  // Main card INSERT (without the old JSON columns, keeping dex_ids)
   const vals = [
     esc(c.id),
     esc(c.localId),
@@ -37,13 +41,67 @@ export function cardInsert(c: Card): string {
     esc(c.variants?.holo),
     esc(c.variants?.firstEdition),
     esc(c.variants?.wPromo),
-    c.attacks ? esc(JSON.stringify(c.attacks)) : "NULL",
-    c.weaknesses ? esc(JSON.stringify(c.weaknesses)) : "NULL",
-    c.resistances ? esc(JSON.stringify(c.resistances)) : "NULL",
-    c.types ? esc(JSON.stringify(c.types)) : "NULL",
     c.dexId ? esc(JSON.stringify(c.dexId)) : "NULL",
   ];
-  return `INSERT OR REPLACE INTO cards (id, local_id, name, image, category, illustrator, rarity, hp, stage, evolve_from, description, level, suffix, effect, trainer_type, energy_type, retreat, regulation_mark, legal_standard, legal_expanded, set_id, updated, variant_normal, variant_reverse, variant_holo, variant_first_edition, variant_w_promo, attacks, weaknesses, resistances, types, dex_ids) VALUES (${vals.join(", ")});`;
+  stmts.push(
+    `INSERT OR REPLACE INTO cards (id, local_id, name, image, category, illustrator, rarity, hp, stage, evolve_from, description, level, suffix, effect, trainer_type, energy_type, retreat, regulation_mark, legal_standard, legal_expanded, set_id, updated, variant_normal, variant_reverse, variant_holo, variant_first_edition, variant_w_promo, dex_ids) VALUES (${vals.join(", ")});`,
+  );
+
+  // Clear existing related rows (idempotent re-seed)
+  stmts.push(`DELETE FROM card_attacks WHERE card_id = ${esc(c.id)};`);
+  stmts.push(`DELETE FROM card_abilities WHERE card_id = ${esc(c.id)};`);
+  stmts.push(`DELETE FROM card_type_modifiers WHERE card_id = ${esc(c.id)};`);
+  stmts.push(`DELETE FROM card_types WHERE card_id = ${esc(c.id)};`);
+
+  // Attacks
+  if (c.attacks) {
+    for (let i = 0; i < c.attacks.length; i++) {
+      const a = c.attacks[i]!;
+      const dmg = parseDamage(a.damage);
+      stmts.push(
+        `INSERT INTO card_attacks (card_id, position, name, cost, damage_base, damage_mod, damage_raw, effect) VALUES (${esc(c.id)}, ${i}, ${esc(a.name)}, ${esc(JSON.stringify(a.cost))}, ${dmg.base}, ${dmg.mod ? esc(dmg.mod) : "NULL"}, ${esc(dmg.raw)}, ${esc(a.effect)});`,
+      );
+    }
+  }
+
+  // Abilities
+  if (c.abilities) {
+    for (let i = 0; i < c.abilities.length; i++) {
+      const ab = c.abilities[i]!;
+      stmts.push(
+        `INSERT INTO card_abilities (card_id, position, type, name, effect) VALUES (${esc(c.id)}, ${i}, ${esc(ab.type)}, ${esc(ab.name)}, ${esc(ab.effect)});`,
+      );
+    }
+  }
+
+  // Weaknesses
+  if (c.weaknesses) {
+    for (const w of c.weaknesses) {
+      stmts.push(
+        `INSERT INTO card_type_modifiers (card_id, kind, type, value) VALUES (${esc(c.id)}, 'weakness', ${esc(w.type)}, ${esc(w.value)});`,
+      );
+    }
+  }
+
+  // Resistances
+  if (c.resistances) {
+    for (const r of c.resistances) {
+      stmts.push(
+        `INSERT INTO card_type_modifiers (card_id, kind, type, value) VALUES (${esc(c.id)}, 'resistance', ${esc(r.type)}, ${esc(r.value)});`,
+      );
+    }
+  }
+
+  // Types
+  if (c.types) {
+    for (const t of c.types) {
+      stmts.push(
+        `INSERT INTO card_types (card_id, type) VALUES (${esc(c.id)}, ${esc(t)});`,
+      );
+    }
+  }
+
+  return stmts;
 }
 
 export async function pMap<T, R>(

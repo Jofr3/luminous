@@ -1,3 +1,25 @@
+// ---------------------------------------------------------------------------
+// Card data types
+// ---------------------------------------------------------------------------
+
+export interface CardAbility {
+  type: string;
+  name: string;
+  effect: string;
+}
+
+export interface CardAttack {
+  cost: string[];
+  name: string;
+  effect?: string | null;
+  damage?: string | number | null;
+}
+
+export interface CardTypeModifier {
+  type: string;
+  value: string;
+}
+
 export interface CardSummary {
   id: string;
   local_id: string;
@@ -10,28 +32,33 @@ export interface CardSummary {
   trainer_type?: string | null;
   energy_type?: string | null;
   suffix?: string | null;
+  retreat?: number | null;
+  effect?: string | null;
+  types?: string[];
+  attacks?: CardAttack[];
+  abilities?: CardAbility[];
+  weaknesses?: CardTypeModifier[];
+  resistances?: CardTypeModifier[];
   set_id: string;
   set_name: string | null;
 }
 
-export interface CardAttack {
-  cost?: string[];
-  name?: string;
-  effect?: string;
-  damage?: string | number;
-}
-
-export interface CardTypeModifier {
-  type?: string;
-  value?: string;
-}
-
 export interface CardDetail extends CardSummary {
-  types?: string[] | string | null;
-  attacks?: CardAttack[] | string | null;
-  weaknesses?: CardTypeModifier[] | string | null;
-  resistances?: CardTypeModifier[] | string | null;
+  evolve_from?: string | null;
+  description?: string | null;
+  illustrator?: string | null;
+  regulation_mark?: string | null;
+  legal_standard?: number;
+  legal_expanded?: number;
+  dex_ids?: number[];
+  set_logo?: string | null;
+  set_symbol?: string | null;
+  set_release_date?: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// API response types
+// ---------------------------------------------------------------------------
 
 export interface CardListResponse {
   data: CardSummary[];

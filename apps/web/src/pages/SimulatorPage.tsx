@@ -40,6 +40,8 @@ function createInitialStore(): SimulatorStore {
       "Loading decklists and setting up the game...",
     ],
     players: [createEmptyPlayer(), createEmptyPlayer()],
+    stadium: null,
+    gameStarted: false,
   };
 }
 
@@ -48,9 +50,10 @@ export function SimulatorPage() {
   const { actions, autoSetup } = useSimulatorActions(withStore);
 
   useEffect(() => {
+    if (store.gameStarted) return;
     void autoSetup();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [store.gameStarted]);
 
   return <SimulatorBoard store={store} actions={actions} />;
 }
