@@ -1,6 +1,7 @@
 import type {
   CardDetail,
   CardListResponse,
+  DeckSummary,
   FilterOptions,
   SetListResponse,
 } from "./types";
@@ -202,5 +203,24 @@ export async function fetchCardById(id: string): Promise<CardDetail> {
 
   cardDetailCache.set(key, { data: payload.data, ts: performance.now() });
   evictOldest(cardDetailCache);
+  return payload.data;
+}
+
+function isDeckListResponse(
+  value: unknown,
+): value is { data: DeckSummary[] } {
+  return isRecord(value) && Array.isArray(value.data);
+}
+
+export async function fetchDecks(): Promise<DeckSummary[]> {
+  const res = await fetch(`${API_URL}/api/decks`);
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  const payload = parseJson(
+    await res.json(),
+    isDeckListResponse,
+    "Invalid decks payload",
+  );
   return payload.data;
 }

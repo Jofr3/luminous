@@ -1,4 +1,5 @@
 import type { DragPayload, SimulatorActions, SimulatorStore } from "./types";
+import { fetchDecks } from "../../lib/api";
 import {
   appendLog,
   autoMulliganUntilBasic,
@@ -26,7 +27,6 @@ import {
   endTurnParalysisCheck,
   canRetreat as engineCanRetreat,
   canRetreatCondition,
-  totalEnergyCount,
   applySpecialCondition,
 } from "@luminous/engine";
 import type { CardAttack } from "@luminous/engine";
@@ -173,7 +173,6 @@ function finishTurn(store: SimulatorStore): void {
 
   nextPlayer.hand.push(...drawn);
   store.turnDrawDone = true;
-  appendLog(store, `P${next + 1} drew a card.`);
 }
 
 function applyResolvedEffects(store: SimulatorStore, attackerIdx: 0 | 1, defenderIdx: 0 | 1, effects: ReturnType<typeof resolveAttack>["effects"]): void {
@@ -239,11 +238,15 @@ function applyResolvedEffects(store: SimulatorStore, attackerIdx: 0 | 1, defende
 
 export function useSimulatorActions(withStore: WithStore): {
   actions: SimulatorActions;
-  autoSetup: () => Promise<void>;
+  autoSetup: (deckOverrides?: { deck1: string; deck2: string }) => Promise<void>;
 } {
-  const autoSetup = withStore(async (store) => {
+  const autoSetup = withStore(async (store, deckOverrides?: { deck1: string; deck2: string }) => {
     store.loading = true;
     try {
+      if (deckOverrides) {
+        store.deckInput1 = deckOverrides.deck1;
+        store.deckInput2 = deckOverrides.deck2;
+      }
       const deck1 = await buildDeckFromInput(store, store.deckInput1, "Deck 1");
       const deck2 = await buildDeckFromInput(store, store.deckInput2, "Deck 2");
       if (!deck1 || !deck2) return;
@@ -272,26 +275,33 @@ export function useSimulatorActions(withStore: WithStore): {
       p1.hand.push(...drawFromDeck(p1, bonus1));
       p2.hand.push(...drawFromDeck(p2, bonus2));
 
+      store.logs = [];
       store.players = [p1, p2];
       store.winner = null;
-      store.coinFlipResult = null;
       store.revealedPrizeUids = [[], []];
       store.selectedPrizeUid = [null, null];
       store.selectedHandUid = [null, null];
       store.stadium = null;
-      store.currentTurn = 0;
       store.phase = "setup";
       store.gameStarted = true;
 
+      store.coinFlipResult = Math.random() < 0.5 ? "Heads" : "Tails";
+      store.firstPlayer = store.coinFlipResult === "Heads" ? 0 : 1;
+      store.currentTurn = store.firstPlayer;
+
+      appendLog(store, `Coin flip: ${store.coinFlipResult}. P${store.firstPlayer + 1} goes first.`);
       appendLog(store, `Mulligans -> P1: ${p1.mulligans}, P2: ${p2.mulligans}.`);
-      appendLog(store, "P1: place your Active Pokemon (required) and Bench, then click Ready.");
     } finally {
       store.loading = false;
     }
   });
 
-  const newGame = async () => {
-    await autoSetup();
+  const startNewGame = async () => {
+    const decks = await fetchDecks();
+    await autoSetup({
+      deck1: decks[0]?.decklist ?? "",
+      deck2: decks[1]?.decklist ?? "",
+    });
   };
 
   const selectHandCard = withStore((store, playerIdx: 0 | 1, uid: string) => {
@@ -302,20 +312,31 @@ export function useSimulatorActions(withStore: WithStore): {
   // End Turn (with Pokemon Checkup)
   // ---------------------------------------------------------------------------
 
+  const logSetupBoard = (store: SimulatorStore, playerIdx: 0 | 1) => {
+    const player = store.players[playerIdx];
+    const tag = `P${playerIdx + 1}`;
+    appendLog(store, `${tag} set ${player.active!.base.card.name} to Active.`);
+    for (const b of player.bench) {
+      appendLog(store, `${tag} benched ${b.base.card.name}.`);
+    }
+  };
+
   const endTurn = withStore((store) => {
     if (store.phase === "setup") {
       const player = store.players[store.currentTurn];
-      if (!player.active) {
-        appendLog(store, `P${store.currentTurn + 1} must place an Active Pokemon before continuing.`);
+      if (!player.active) return;
+
+      const otherIdx: 0 | 1 = store.currentTurn === 0 ? 1 : 0;
+
+      // First player done, switch to second player for setup
+      if (!store.players[otherIdx].active) {
+        logSetupBoard(store, store.currentTurn);
+        store.currentTurn = otherIdx;
         return;
       }
 
-      if (store.currentTurn === 0) {
-        store.currentTurn = 1;
-        appendLog(store, "P1 is ready.");
-        appendLog(store, "P2: place your Active Pokemon (required) and Bench, then click End Turn.");
-        return;
-      }
+      // Both players done — finalize setup
+      logSetupBoard(store, store.currentTurn);
 
       for (const playerBoard of store.players) {
         playerBoard.prizes = drawFromDeck(playerBoard, 6);
@@ -324,22 +345,16 @@ export function useSimulatorActions(withStore: WithStore): {
         playerBoard.retreatedThisTurn = false;
       }
 
-      store.coinFlipResult = Math.random() < 0.5 ? "Heads" : "Tails";
-      store.firstPlayer = store.coinFlipResult === "Heads" ? 0 : 1;
       store.currentTurn = store.firstPlayer;
       store.turnNumber = 1;
       store.turnDrawDone = false;
       store.phase = "playing";
-
-      appendLog(store, `Coin flip: ${store.coinFlipResult}. P${store.firstPlayer + 1} goes first.`);
-      appendLog(store, "First player cannot attack on turn 1.");
 
       const firstPlayer = store.players[store.firstPlayer];
       const drawn = drawFromDeck(firstPlayer, 1);
       if (drawn.length > 0) {
         firstPlayer.hand.push(...drawn);
         store.turnDrawDone = true;
-        appendLog(store, `P${store.firstPlayer + 1} drew a card.`);
       }
       return;
     }
@@ -359,7 +374,6 @@ export function useSimulatorActions(withStore: WithStore): {
 
     // First player cannot attack on turn 1
     if (store.turnNumber === 1 && store.currentTurn === store.firstPlayer) {
-      appendLog(store, "First player cannot attack on turn 1.");
       return;
     }
 
@@ -367,16 +381,10 @@ export function useSimulatorActions(withStore: WithStore): {
     const defenderIdx = (store.currentTurn === 0 ? 1 : 0) as 0 | 1;
     const defender = store.players[defenderIdx];
 
-    if (!attacker.active || !defender.active) {
-      appendLog(store, "Both players need an Active Pokemon to attack.");
-      return;
-    }
+    if (!attacker.active || !defender.active) return;
 
     const attacks = attacker.active.base.card.attacks ?? [];
-    if (attackIdx < 0 || attackIdx >= attacks.length) {
-      appendLog(store, "Invalid attack index.");
-      return;
-    }
+    if (attackIdx < 0 || attackIdx >= attacks.length) return;
 
     const frontendAttack = attacks[attackIdx];
     const dmg = parseDamage(frontendAttack.damage);
@@ -395,10 +403,7 @@ export function useSimulatorActions(withStore: WithStore): {
 
     // Validate
     const validation = validateAttack(engineAttacker, engineAttack);
-    if (!validation.valid) {
-      appendLog(store, validation.reason ?? "Cannot use this attack.");
-      return;
-    }
+    if (!validation.valid) return;
 
     // Resolve
     const result = resolveAttack({
@@ -451,21 +456,12 @@ export function useSimulatorActions(withStore: WithStore): {
     if (!pokemon) {
       pokemon = player.bench.find((p) => p.uid === pokemonUid) ?? null;
     }
-    if (!pokemon) {
-      appendLog(store, "Pokemon not found.");
-      return;
-    }
+    if (!pokemon) return;
 
     const abilities = pokemon.base.card.abilities ?? [];
-    if (abilityIdx < 0 || abilityIdx >= abilities.length) {
-      appendLog(store, "Invalid ability index.");
-      return;
-    }
+    if (abilityIdx < 0 || abilityIdx >= abilities.length) return;
 
-    if (pokemon.usedAbilityThisTurn) {
-      appendLog(store, `${pokemon.base.card.name} already used an Ability this turn.`);
-      return;
-    }
+    if (pokemon.usedAbilityThisTurn) return;
 
     const ability = abilities[abilityIdx];
     pokemon.usedAbilityThisTurn = true;
@@ -484,28 +480,16 @@ export function useSimulatorActions(withStore: WithStore): {
 
     const player = store.players[store.currentTurn];
     const cardInHand = player.hand.find((c) => c.uid === uid);
-    if (!cardInHand) {
-      appendLog(store, "Card not in hand.");
-      return;
-    }
+    if (!cardInHand) return;
 
     const card = cardInHand.card;
-    if (card.category !== "Trainer") {
-      appendLog(store, `${card.name} is not a Trainer card.`);
-      return;
-    }
+    if (card.category !== "Trainer") return;
 
     // Supporter: one per turn
     if (card.trainer_type === "Supporter") {
-      if (player.supporterPlayedThisTurn) {
-        appendLog(store, "Already played a Supporter this turn.");
-        return;
-      }
+      if (player.supporterPlayedThisTurn) return;
       // First turn restriction
-      if (store.turnNumber === 1 && store.currentTurn === store.firstPlayer) {
-        appendLog(store, "Cannot play a Supporter on the first player's first turn.");
-        return;
-      }
+      if (store.turnNumber === 1 && store.currentTurn === store.firstPlayer) return;
     }
 
     // Remove from hand
@@ -548,32 +532,19 @@ export function useSimulatorActions(withStore: WithStore): {
     if (!canAct(store, store.currentTurn, "retreat")) return;
 
     const player = store.players[store.currentTurn];
-    if (!player.active) {
-      appendLog(store, "No Active Pokemon to retreat.");
-      return;
-    }
-
-    if (player.retreatedThisTurn) {
-      appendLog(store, "Already retreated this turn.");
-      return;
-    }
+    if (!player.active) return;
+    if (player.retreatedThisTurn) return;
 
     // Check conditions
     const engineActive = toEnginePokemon(player.active);
     const condCheck = canRetreatCondition(engineActive);
-    if (!condCheck.allowed) {
-      appendLog(store, condCheck.reason ?? "Cannot retreat due to special conditions.");
-      return;
-    }
+    if (!condCheck.allowed) return;
 
     // Check energy cost
     const retreatCost = player.active.base.card.retreat ?? 0;
     if (retreatCost > 0) {
       const engineInst = toEnginePokemon(player.active);
-      if (!engineCanRetreat(engineInst)) {
-        appendLog(store, `${player.active.base.card.name} needs ${retreatCost} energy to retreat but has ${totalEnergyCount(engineInst)}.`);
-        return;
-      }
+      if (!engineCanRetreat(engineInst)) return;
 
       // Discard energy for retreat cost (remove from end of attached)
       let remaining = retreatCost;
@@ -589,7 +560,6 @@ export function useSimulatorActions(withStore: WithStore): {
     // Find bench replacement
     const benchSlot = removeBenchPokemon(player, benchUid);
     if (!benchSlot) {
-      appendLog(store, "Bench Pokemon not found.");
       return;
     }
 
@@ -620,17 +590,47 @@ export function useSimulatorActions(withStore: WithStore): {
     const targetPlayer = store.players[targetPlayerIdx];
 
     if (payload.zone === "bench" && payload.playerIdx === targetPlayerIdx) {
-      const benchSlot = removeBenchPokemon(sourcePlayer, payload.uid);
-      if (!benchSlot) return;
-
       if (!targetPlayer.active) {
+        const benchSlot = removeBenchPokemon(sourcePlayer, payload.uid);
+        if (!benchSlot) return;
         targetPlayer.active = benchSlot;
-      } else {
+      } else if (store.phase === "setup") {
+        const benchSlot = removeBenchPokemon(sourcePlayer, payload.uid);
+        if (!benchSlot) return;
         const oldActive = targetPlayer.active;
         targetPlayer.active = benchSlot;
         targetPlayer.bench.push(oldActive);
+      } else {
+        // During gameplay, bench-to-active swap is a retreat
+        if (targetPlayer.retreatedThisTurn) return;
+        const engineActive = toEnginePokemon(targetPlayer.active);
+        if (!canRetreatCondition(engineActive).allowed) return;
+        if (!engineCanRetreat(engineActive)) return;
+
+        const benchSlot = removeBenchPokemon(sourcePlayer, payload.uid);
+        if (!benchSlot) return;
+
+        const oldActive = targetPlayer.active;
+        oldActive.specialConditions = [];
+        oldActive.poisonDamage = 10;
+        oldActive.burnDamage = 20;
+
+        // Discard energy for retreat cost
+        const retreatCost = oldActive.base.card.retreat ?? 0;
+        let remaining = retreatCost;
+        while (remaining > 0 && oldActive.attached.length > 0) {
+          const lastEnergyIdx = oldActive.attached.findLastIndex((a) => a.card.category === "Energy");
+          if (lastEnergyIdx === -1) break;
+          const [removed] = oldActive.attached.splice(lastEnergyIdx, 1);
+          targetPlayer.discard.push(removed);
+          remaining--;
+        }
+
+        targetPlayer.active = benchSlot;
+        targetPlayer.bench.push(oldActive);
+        targetPlayer.retreatedThisTurn = true;
+        appendLog(store, `${oldActive.base.card.name} retreated. ${benchSlot.base.card.name} is now Active.`);
       }
-      appendLog(store, `P${targetPlayerIdx + 1} switched Active via drag-and-drop.`);
       return;
     }
 
@@ -642,7 +642,6 @@ export function useSimulatorActions(withStore: WithStore): {
     if (card.card.category === "Energy") {
       if (store.phase === "setup") {
         sourcePlayer.hand.push(card);
-        appendLog(store, "Cannot attach Energy during setup.");
         return;
       }
       if (!targetPlayer.active) {
@@ -655,12 +654,11 @@ export function useSimulatorActions(withStore: WithStore): {
       }
       if (targetPlayer.energyAttachedThisTurn) {
         sourcePlayer.hand.push(card);
-        appendLog(store, `P${targetPlayerIdx + 1} already attached Energy this turn.`);
         return;
       }
       targetPlayer.active.attached.push(card);
       targetPlayer.energyAttachedThisTurn = true;
-      appendLog(store, `P${targetPlayerIdx + 1} attached ${card.card.name} to Active via drag-and-drop.`);
+      appendLog(store, `P${targetPlayerIdx + 1} attached ${card.card.name} to ${targetPlayer.active.base.card.name}.`);
       return;
     }
 
@@ -671,7 +669,9 @@ export function useSimulatorActions(withStore: WithStore): {
 
     if (!targetPlayer.active) {
       targetPlayer.active = makePokemonInPlay(card, store.turnNumber);
-      appendLog(store, `P${targetPlayerIdx + 1} set Active via drag-and-drop.`);
+      if (store.phase !== "setup") {
+        appendLog(store, `P${targetPlayerIdx + 1} set ${card.card.name} to Active.`);
+      }
     } else {
       sourcePlayer.hand.push(card);
     }
@@ -694,7 +694,9 @@ export function useSimulatorActions(withStore: WithStore): {
     }
 
     targetPlayer.bench.push(makePokemonInPlay(card, store.turnNumber));
-    appendLog(store, `P${targetPlayerIdx + 1} benched ${card.card.name} via drag-and-drop.`);
+    if (store.phase !== "setup") {
+      appendLog(store, `P${targetPlayerIdx + 1} benched ${card.card.name}.`);
+    }
   });
 
   const dropToBenchSlot = withStore((store, payload: DragPayload, targetPlayerIdx: 0 | 1, benchIdx: number) => {
@@ -711,7 +713,6 @@ export function useSimulatorActions(withStore: WithStore): {
       if (card.card.category === "Energy") {
         if (store.phase === "setup") {
           targetPlayer.hand.push(card);
-          appendLog(store, "Cannot attach Energy during setup.");
           return;
         }
         if (!canAct(store, targetPlayerIdx, "attach Energy")) {
@@ -720,13 +721,12 @@ export function useSimulatorActions(withStore: WithStore): {
         }
         if (targetPlayer.energyAttachedThisTurn) {
           targetPlayer.hand.push(card);
-          appendLog(store, `P${targetPlayerIdx + 1} already attached Energy this turn.`);
           return;
         }
         benchSlot.attached.push(card);
         targetPlayer.energyAttachedThisTurn = true;
         store.selectedHandUid[targetPlayerIdx] = null;
-        appendLog(store, `P${targetPlayerIdx + 1} attached ${card.card.name} to Benched ${benchSlot.base.card.name}.`);
+        appendLog(store, `P${targetPlayerIdx + 1} attached ${card.card.name} to ${benchSlot.base.card.name}.`);
         return;
       }
 
@@ -751,7 +751,7 @@ export function useSimulatorActions(withStore: WithStore): {
     const card = removeHandCard(targetPlayer, payload.uid);
     if (!card) return;
     targetPlayer.discard.push(card);
-    appendLog(store, `P${targetPlayerIdx + 1} discarded ${card.card.name} via drag-and-drop.`);
+    appendLog(store, `P${targetPlayerIdx + 1} discarded ${card.card.name}.`);
   });
 
   const dropToHand = withStore((store, payload: DragPayload, targetPlayerIdx: 0 | 1) => {
@@ -763,7 +763,7 @@ export function useSimulatorActions(withStore: WithStore): {
     player.hand.push(card);
 
     store.revealedPrizeUids[targetPlayerIdx] = store.revealedPrizeUids[targetPlayerIdx].filter((uid) => uid !== payload.uid);
-    appendLog(store, `P${targetPlayerIdx + 1} moved a revealed Prize to hand via drag-and-drop.`);
+    appendLog(store, `P${targetPlayerIdx + 1} moved a revealed Prize to hand.`);
   });
 
   return {
@@ -781,7 +781,7 @@ export function useSimulatorActions(withStore: WithStore): {
       playTrainerCard,
       retreat,
       endTurn,
-      newGame,
+      newGame: startNewGame,
     },
   };
 }

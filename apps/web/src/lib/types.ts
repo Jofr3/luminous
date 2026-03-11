@@ -95,3 +95,10 @@ export interface FilterOptions {
   hp: { min: number; max: number };
   regulation_marks: string[];
 }
+
+export interface DeckSummary {
+  id: number;
+  name: string;
+  decklist: string;
+  created_at: string;
+}

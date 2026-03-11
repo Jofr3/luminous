@@ -13,9 +13,13 @@ import type { DragPayload, SimulatorStore, SimulatorActions } from "./types";
 interface SimulatorBoardProps {
   store: SimulatorStore;
   actions: SimulatorActions;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
-export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
+export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }: SimulatorBoardProps) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -104,6 +108,30 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
               >
                 New Game
               </button>
+              <div className="time-travel">
+                <button
+                  className="btn time-btn"
+                  disabled={!canUndo}
+                  onClick={undo}
+                  title="Undo (go back one move)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 14 4 9l5-5" />
+                    <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+                  </svg>
+                </button>
+                <button
+                  className="btn time-btn"
+                  disabled={!canRedo}
+                  onClick={redo}
+                  title="Redo (go forward one move)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m15 14 5-5-5-5" />
+                    <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />
+                  </svg>
+                </button>
+              </div>
               <button
                 className={`btn end-turn ${store.phase === "setup" && !currentPlayer.active ? "needs-active" : ""}`}
                 disabled={store.phase === "idle" || (store.phase === "setup" && !currentPlayer.active)}
@@ -240,13 +268,6 @@ export function SimulatorBoard({ store, actions }: SimulatorBoardProps) {
         </div>
 
         <aside className="logs-sidebar" aria-label="Game logs">
-          <div className="logs-header">
-            <div>
-              <p className="logs-eyebrow">Match Feed</p>
-              <h2>Game Logs</h2>
-            </div>
-            <span className="logs-count">{store.logs.length}</span>
-          </div>
           <div className="logs-list">
             {store.logs.length === 0 ? (
               <p className="log-empty">No actions yet.</p>

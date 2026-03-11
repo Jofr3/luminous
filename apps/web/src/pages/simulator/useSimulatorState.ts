@@ -1,8 +1,9 @@
-import { useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { PokemonInPlay, SimulatorStore } from "./types";
 import { syncUidCounterFromStore } from "./logic";
 
-const STORAGE_KEY = "luminous.simulator.store.v1";
+const STORAGE_KEY = "luminous.simulator.store.v2";
+const MAX_HISTORY = 200;
 
 /** Backfill fields added after v1 so old localStorage data doesn't crash */
 function migrateStore(store: SimulatorStore): SimulatorStore {
@@ -51,6 +52,8 @@ export function useSimulatorState(initial: () => SimulatorStore) {
     },
   );
   const storeRef = useRef(store);
+  const historyRef = useRef<SimulatorStore[]>([]);
+  const futureRef = useRef<SimulatorStore[]>([]);
 
   useEffect(() => {
     storeRef.current = store;
@@ -66,12 +69,44 @@ export function useSimulatorState(initial: () => SimulatorStore) {
     fn: (draft: SimulatorStore, ...args: Args) => R | Promise<R>,
   ) => {
     return async (...args: Args): Promise<R> => {
-      const draft = structuredClone(storeRef.current);
+      const prev = storeRef.current;
+      const draft = structuredClone(prev);
       const result = await fn(draft, ...args);
+      // Push previous state to history, clear future
+      historyRef.current = [...historyRef.current.slice(-(MAX_HISTORY - 1)), prev];
+      futureRef.current = [];
       setStore(draft);
       return result;
     };
   };
 
-  return { store, withStore, hydratedFromStorage: hydratedFromStorageRef.current };
+  const undo = useCallback(() => {
+    const history = historyRef.current;
+    if (history.length === 0) return;
+    const prev = history[history.length - 1];
+    historyRef.current = history.slice(0, -1);
+    futureRef.current = [...futureRef.current, storeRef.current];
+    syncUidCounterFromStore(prev);
+    setStore(prev);
+  }, []);
+
+  const redo = useCallback(() => {
+    const future = futureRef.current;
+    if (future.length === 0) return;
+    const next = future[future.length - 1];
+    futureRef.current = future.slice(0, -1);
+    historyRef.current = [...historyRef.current, storeRef.current];
+    syncUidCounterFromStore(next);
+    setStore(next);
+  }, []);
+
+  return {
+    store,
+    withStore,
+    hydratedFromStorage: hydratedFromStorageRef.current,
+    undo,
+    redo,
+    canUndo: historyRef.current.length > 0,
+    canRedo: futureRef.current.length > 0,
+  };
 }
