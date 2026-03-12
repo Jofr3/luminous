@@ -109,7 +109,7 @@ export function SetFilterGroup({
       {selectedSetName && (
         <div className="filter-set-active">
           <span>{selectedSetName}</span>
-          <button className="filter-set-clear" onClick={() => onSelect("")}>
+          <button type="button" className="filter-set-clear" onClick={() => onSelect("")}>
             x
           </button>
         </div>
@@ -124,6 +124,7 @@ export function SetFilterGroup({
       <div className="filter-select__list">
         {filteredSets.map((set) => (
           <button
+            type="button"
             key={set.id}
             className={`filter-select__option ${selectedSetId === set.id ? "filter-select__option--active" : ""}`}
             onClick={() => onSelect(set.id)}

@@ -145,11 +145,15 @@ export function FilterSidebar({
       <div className="filter-sidebar__header">
         <h3 className="filter-sidebar__title">Filters</h3>
         {activeCount > 0 && (
-          <button className="filter-clear-btn" onClick={clearAll}>
+          <button type="button" className="filter-clear-btn" onClick={clearAll}>
             Clear ({activeCount})
           </button>
         )}
-        <button className="filter-sidebar__close" onClick={() => setMobileOpen(false)}>
+        <button
+          type="button"
+          className="filter-sidebar__close"
+          onClick={() => setMobileOpen(false)}
+        >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path
               d="M5 5L15 15M15 5L5 15"
@@ -228,7 +232,7 @@ export function FilterSidebar({
     <>
       <aside className="filter-sidebar">{sidebarContent}</aside>
 
-      <button className="filter-fab" onClick={() => setMobileOpen(true)}>
+      <button type="button" className="filter-fab" onClick={() => setMobileOpen(true)}>
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
           <path
             d="M3 5H17M6 10H14M9 15H11"
