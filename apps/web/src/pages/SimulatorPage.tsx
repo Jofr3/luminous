@@ -36,13 +36,25 @@ export function SimulatorPage() {
   useEffect(() => {
     if (store.gameStarted) return;
 
-    fetchDecks().then((decks) => {
-      void autoSetup({
-        deck1: decks[0]?.decklist ?? "",
-        deck2: decks[1]?.decklist ?? "",
+    let cancelled = false;
+
+    void fetchDecks()
+      .then((decks) => {
+        if (cancelled) return;
+
+        return autoSetup({
+          deck1: decks[0]?.decklist ?? "",
+          deck2: decks[1]?.decklist ?? "",
+        });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.error(error);
       });
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    return () => {
+      cancelled = true;
+    };
   }, [store.gameStarted]);
 
   return (

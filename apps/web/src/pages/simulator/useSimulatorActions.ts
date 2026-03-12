@@ -695,7 +695,6 @@ export function useSimulatorActions(withStore: WithStore): {
       }
       const evoCheck = canEvolvePokemon(card.card, targetPlayer.active, store);
       if (!evoCheck.ok) {
-        appendLog(store, evoCheck.reason!);
         sourcePlayer.hand.push(card);
         return;
       }
@@ -779,7 +778,6 @@ export function useSimulatorActions(withStore: WithStore): {
         }
         const evoCheck = canEvolvePokemon(card.card, benchSlot, store);
         if (!evoCheck.ok) {
-          appendLog(store, evoCheck.reason!);
           targetPlayer.hand.push(card);
           return;
         }

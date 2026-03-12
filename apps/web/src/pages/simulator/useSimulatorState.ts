@@ -72,10 +72,13 @@ export function useSimulatorState(initial: () => SimulatorStore) {
       const prev = storeRef.current;
       const draft = structuredClone(prev);
       const result = await fn(draft, ...args);
-      // Push previous state to history, clear future
-      historyRef.current = [...historyRef.current.slice(-(MAX_HISTORY - 1)), prev];
-      futureRef.current = [];
-      setStore(draft);
+
+      if (JSON.stringify(prev) !== JSON.stringify(draft)) {
+        historyRef.current = [...historyRef.current.slice(-(MAX_HISTORY - 1)), prev];
+        futureRef.current = [];
+        setStore(draft);
+      }
+
       return result;
     };
   };
