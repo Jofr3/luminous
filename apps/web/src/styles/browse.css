@@ -4,22 +4,22 @@
   gap: 0.5rem;
   margin-top: 2rem;
   margin-bottom: 1.5rem;
-
-  &__input {
-    flex: 1;
-    padding: 0.625rem 1rem;
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text);
-    font-size: 0.9375rem;
-    outline: none;
-    transition: border-color 0.15s;
-
-    &:focus { border-color: var(--accent); }
-    &::placeholder { color: var(--text-muted); }
-  }
 }
+
+.search-bar__input {
+  flex: 1;
+  padding: 0.625rem 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.9375rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.search-bar__input:focus { border-color: var(--accent); }
+.search-bar__input::placeholder { color: var(--text-muted); }
 
 /* Card Grid */
 .card-grid {
@@ -27,13 +27,13 @@
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 1.25rem;
   margin-bottom: 2rem;
+}
 
-  &__empty {
-    grid-column: 1 / -1;
-    text-align: center;
-    color: var(--text-muted);
-    padding: 4rem 0;
-  }
+.card-grid__empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--text-muted);
+  padding: 4rem 0;
 }
 
 /* Card Item */
@@ -42,25 +42,25 @@
   border: none;
   transition: border-color 0.15s;
   transform: translateZ(0);
+}
 
-  &__image-wrapper {
-    position: relative;
-    aspect-ratio: 245 / 342;
-    background: var(--bg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.card-item__image-wrapper {
+  position: relative;
+  aspect-ratio: 245 / 342;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
-    img {
-      width: 100%;
-      height: 100%;
-    }
-  }
+.card-item__image-wrapper img {
+  width: 100%;
+  height: 100%;
+}
 
-  &__placeholder {
-    color: var(--text-muted);
-    font-size: 0.8125rem;
-  }
+.card-item__placeholder {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
 }
 
 /* Loading Spinner */
@@ -97,9 +97,9 @@
 
 .browse-status {
   margin-bottom: 0.75rem;
+}
 
-  &__count {
-    font-size: 0.8125rem;
-    color: var(--text-muted);
-  }
+.browse-status__count {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
 }
