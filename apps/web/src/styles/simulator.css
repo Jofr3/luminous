@@ -596,9 +596,6 @@
     &.selected {
       transform: translateY(-40px) scale(1.2) !important;
       z-index: 60;
-      outline: 3px solid var(--accent);
-      outline-offset: 4px;
-      border-radius: 8px;
     }
   }
 

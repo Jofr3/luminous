@@ -72,7 +72,12 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
 
   return (
     <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragEnd={handleDragEnd}>
-      <div className="sim">
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+      <div className="sim" onClick={(e) => {
+        if (!(e.target as HTMLElement).closest(".hand-card")) {
+          void actions.deselectHandCard(store.currentTurn);
+        }
+      }}>
         <div className="play-area">
           <div className="board">
             <section className="mat">

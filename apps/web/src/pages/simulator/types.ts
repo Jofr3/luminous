@@ -60,6 +60,7 @@ export interface SimulatorActions {
   dropToHand: (payload: DragPayload, targetPlayerIdx: 0 | 1) => Promise<void>;
   dropToStadium: (payload: DragPayload) => Promise<void>;
   selectHandCard: (playerIdx: 0 | 1, uid: string) => Promise<void>;
+  deselectHandCard: (playerIdx: 0 | 1) => Promise<void>;
   useAttack: (attackIdx: number) => Promise<void>;
   useAbility: (pokemonUid: string, abilityIdx: number) => Promise<void>;
   playTrainerCard: (uid: string) => Promise<void>;

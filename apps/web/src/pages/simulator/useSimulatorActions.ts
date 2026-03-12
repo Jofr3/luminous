@@ -330,7 +330,12 @@ export function useSimulatorActions(withStore: WithStore): {
   };
 
   const selectHandCard = withStore((store, playerIdx: 0 | 1, uid: string) => {
-    store.selectedHandUid[playerIdx] = uid;
+    store.selectedHandUid[playerIdx] =
+      store.selectedHandUid[playerIdx] === uid ? null : uid;
+  });
+
+  const deselectHandCard = withStore((store, playerIdx: 0 | 1) => {
+    store.selectedHandUid[playerIdx] = null;
   });
 
   // ---------------------------------------------------------------------------
@@ -852,6 +857,7 @@ export function useSimulatorActions(withStore: WithStore): {
       dropToHand,
       dropToStadium,
       selectHandCard,
+      deselectHandCard,
       useAttack,
       useAbility,
       playTrainerCard,
