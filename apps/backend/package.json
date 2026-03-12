@@ -3,12 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "wrangler dev",
-    "build": "wrangler deploy --dry-run --outdir dist",
-    "deploy": "wrangler deploy",
+    "dev": "XDG_CONFIG_HOME=./.wrangler bunx wrangler dev",
+    "build": "XDG_CONFIG_HOME=./.wrangler bunx wrangler deploy --dry-run --outdir dist",
+    "deploy": "XDG_CONFIG_HOME=./.wrangler bunx wrangler deploy",
     "typecheck": "bunx tsc --noEmit",
-    "db:migrate:local": "wrangler d1 migrations apply luminous-db --local",
-    "db:migrate:remote": "wrangler d1 migrations apply luminous-db --remote",
+    "db:migrate:local": "XDG_CONFIG_HOME=./.wrangler bunx wrangler d1 migrations apply luminous-db --local",
+    "db:migrate:remote": "XDG_CONFIG_HOME=./.wrangler bunx wrangler d1 migrations apply luminous-db --remote",
     "db:seed": "bun run scripts/seed.ts",
     "db:seed-card": "bun run scripts/seed-card.ts",
     "db:migrate-images": "bun run scripts/migrate-images.ts"

@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "bunx vite",
+    "build": "bunx vite build",
     "build.types": "bunx tsc --incremental --noEmit",
-    "preview": "vite preview --open",
+    "preview": "bunx vite preview --open",
     "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
