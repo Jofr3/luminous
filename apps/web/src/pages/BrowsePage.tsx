@@ -85,16 +85,43 @@ export function BrowsePage() {
   }, [hasMore]);
 
   useEffect(() => {
-    void Promise.all([fetchFilters(), fetchSets()])
-      .then(([filters, setResponse]) => {
-        setFilterOptions(filters);
-        setSets(setResponse.data);
+    let cancelled = false;
+
+    void Promise.allSettled([fetchFilters(), fetchSets()])
+      .then((results) => {
+        if (cancelled) return;
+
+        const [filtersResult, setsResult] = results;
+        const errors: unknown[] = [];
+
+        if (filtersResult.status === "fulfilled") {
+          setFilterOptions(filtersResult.value);
+        } else {
+          errors.push(filtersResult.reason);
+          setFilterOptions(emptyFilters);
+        }
+
+        if (setsResult.status === "fulfilled") {
+          setSets(setsResult.value.data);
+        } else {
+          errors.push(setsResult.reason);
+          setSets([]);
+        }
+
+        if (errors.length > 0) {
+          for (const error of errors) {
+            console.error(error);
+          }
+          setMetadataError("Some filters could not be loaded.");
+          return;
+        }
+
         setMetadataError(null);
-      })
-      .catch((error: unknown) => {
-        console.error(error);
-        setMetadataError("Some filters could not be loaded.");
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
