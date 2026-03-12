@@ -207,25 +207,6 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                   </div>
                 )}
 
-                {/* Retreat */}
-                {currentPlayer.bench.length > 0 && (
-                  <div className="action-group">
-                    <span className="action-label">
-                      Retreat ({active.base.card.retreat ?? 0})
-                    </span>
-                    {currentPlayer.bench.map((bp) => (
-                      <button
-                        key={bp.uid}
-                        className="action-btn retreat-btn"
-                        disabled={currentPlayer.retreatedThisTurn}
-                        onClick={() => void actions.retreat(bp.uid)}
-                        title={`Switch to ${bp.base.card.name}`}
-                      >
-                        {bp.base.card.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
 
                 {/* Special Conditions indicator */}
                 {(active.specialConditions?.length ?? 0) > 0 && (
