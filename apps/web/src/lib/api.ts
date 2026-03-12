@@ -47,10 +47,6 @@ function isCardListResponse(value: unknown): value is CardListResponse {
   );
 }
 
-function isSetListResponse(value: unknown): value is SetListResponse {
-  return isRecord(value) && Array.isArray(value.data);
-}
-
 function isCardDetail(value: unknown): value is CardDetail {
   return (
     isRecord(value) &&
@@ -62,23 +58,38 @@ function isCardDetail(value: unknown): value is CardDetail {
   );
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isNumberArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "number");
+}
+
 function isFilterOptions(value: unknown): value is FilterOptions {
   if (!isRecord(value) || !isRecord(value.hp)) return false;
 
   return (
-    Array.isArray(value.categories) &&
-    Array.isArray(value.rarities) &&
-    Array.isArray(value.stages) &&
-    Array.isArray(value.trainer_types) &&
-    Array.isArray(value.energy_types) &&
-    Array.isArray(value.types) &&
-    Array.isArray(value.weaknesses) &&
-    Array.isArray(value.resistances) &&
-    Array.isArray(value.retreats) &&
+    isStringArray(value.categories) &&
+    isStringArray(value.rarities) &&
+    isStringArray(value.stages) &&
+    isStringArray(value.trainer_types) &&
+    isStringArray(value.energy_types) &&
+    isStringArray(value.types) &&
+    isStringArray(value.weaknesses) &&
+    isStringArray(value.resistances) &&
+    isNumberArray(value.retreats) &&
     typeof value.hp.min === "number" &&
     typeof value.hp.max === "number" &&
-    Array.isArray(value.regulation_marks)
+    isStringArray(value.regulation_marks)
   );
+}
+
+function hasDataEnvelope<T>(
+  value: unknown,
+  guard: (input: unknown) => input is T,
+): value is { data: T } {
+  return isRecord(value) && guard(value.data);
 }
 
 function parseJson<T>(
@@ -179,7 +190,13 @@ export async function fetchSets(): Promise<SetListResponse> {
     throw new Error(`API error: ${res.status}`);
   }
 
-  return parseJson(await res.json(), isSetListResponse, "Invalid sets payload");
+  const payload = parseJson(
+    await res.json(),
+    (value): value is { data: SetListResponse["data"] } => hasDataEnvelope(value, Array.isArray),
+    "Invalid sets payload",
+  );
+
+  return { data: payload.data };
 }
 
 export async function fetchCardById(id: string): Promise<CardDetail> {
@@ -197,7 +214,7 @@ export async function fetchCardById(id: string): Promise<CardDetail> {
   }
 
   const payload = await res.json();
-  if (!isRecord(payload) || !isCardDetail(payload.data)) {
+  if (!hasDataEnvelope(payload, isCardDetail)) {
     throw new Error("Invalid card detail payload");
   }
 
@@ -209,7 +226,7 @@ export async function fetchCardById(id: string): Promise<CardDetail> {
 function isDeckListResponse(
   value: unknown,
 ): value is { data: DeckSummary[] } {
-  return isRecord(value) && Array.isArray(value.data);
+  return hasDataEnvelope(value, Array.isArray);
 }
 
 export async function fetchDecks(): Promise<DeckSummary[]> {
