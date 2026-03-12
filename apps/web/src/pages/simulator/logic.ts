@@ -74,6 +74,29 @@ export function isBasicPokemon(card: CardSummary): boolean {
   return card.category === "Pokemon" && card.stage === "Basic";
 }
 
+export function isEvolutionPokemon(card: CardSummary): boolean {
+  return card.category === "Pokemon" && card.stage !== "Basic" && card.stage != null;
+}
+
+export function canEvolvePokemon(
+  evoCard: CardSummary,
+  target: PokemonInPlay,
+  store: SimulatorStore,
+): { ok: boolean; reason?: string } {
+  if (!isEvolutionPokemon(evoCard))
+    return { ok: false, reason: `${evoCard.name} is not an evolution card.` };
+  // If evolve_from is known, validate the name match
+  if (evoCard.evolve_from && evoCard.evolve_from !== target.base.card.name)
+    return { ok: false, reason: `${evoCard.name} evolves from ${evoCard.evolve_from}, not ${target.base.card.name}.` };
+  // Cannot evolve on either player's first turn (turns 1 and 2)
+  if (store.turnNumber <= 2)
+    return { ok: false, reason: `Cannot evolve on a player's first turn.` };
+  // Cannot evolve a Pokemon on the same turn it was played/evolved
+  if (target.turnPlayedOrEvolved >= store.turnNumber)
+    return { ok: false, reason: `${target.base.card.name} was played or evolved this turn.` };
+  return { ok: true };
+}
+
 export function makePokemonInPlay(instance: CardInstance, turnNumber = 0): PokemonInPlay {
   return {
     uid: nextUid(),
@@ -157,6 +180,7 @@ function summaryFromDetail(detail: CardDetail): CardSummary {
     trainer_type: detail.trainer_type ?? null,
     energy_type: detail.energy_type ?? null,
     suffix: detail.suffix ?? null,
+    evolve_from: detail.evolve_from ?? null,
     retreat: detail.retreat ?? null,
     effect: detail.effect ?? null,
     types: detail.types ?? [],

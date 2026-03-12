@@ -1,13 +1,15 @@
-import type { DragPayload, SimulatorActions, SimulatorStore } from "./types";
+import type { CardInstance, DragPayload, PokemonInPlay, SimulatorActions, SimulatorStore } from "./types";
 import { fetchDecks } from "../../lib/api";
 import {
   appendLog,
   autoMulliganUntilBasic,
   buildDeckFromInput,
   canAct,
+  canEvolvePokemon,
   createEmptyPlayer,
   drawFromDeck,
   isBasicPokemon,
+  isEvolutionPokemon,
   makePokemonInPlay,
   removeBenchPokemon,
   removeHandCard,
@@ -34,6 +36,28 @@ import type { CardAttack } from "@luminous/engine";
 type WithStore = <Args extends unknown[], R>(
   fn: (draft: SimulatorStore, ...args: Args) => R | Promise<R>,
 ) => (...args: Args) => Promise<R>;
+
+function evolvePokemon(
+  store: SimulatorStore,
+  pokemon: PokemonInPlay,
+  evoCard: CardInstance,
+  playerIdx: 0 | 1,
+): void {
+  const oldName = pokemon.base.card.name;
+  // The old base card goes under as an attached card (keeps all attached cards)
+  pokemon.attached.push(pokemon.base);
+  // New base is the evolution card
+  pokemon.base = evoCard;
+  // Update turn tracker to prevent double evolution
+  pokemon.turnPlayedOrEvolved = store.turnNumber;
+  // Clear special conditions on evolution
+  pokemon.specialConditions = [];
+  pokemon.poisonDamage = 10;
+  pokemon.burnDamage = 20;
+  // Reset ability usage
+  pokemon.usedAbilityThisTurn = false;
+  appendLog(store, `P${playerIdx + 1} evolved ${oldName} into ${evoCard.card.name}.`);
+}
 
 function discardActivePokemon(store: SimulatorStore, playerIdx: 0 | 1): void {
   const player = store.players[playerIdx];
@@ -282,6 +306,7 @@ export function useSimulatorActions(withStore: WithStore): {
       store.selectedPrizeUid = [null, null];
       store.selectedHandUid = [null, null];
       store.stadium = null;
+      store.turnNumber = 0;
       store.phase = "setup";
       store.gameStarted = true;
 
@@ -662,6 +687,22 @@ export function useSimulatorActions(withStore: WithStore): {
       return;
     }
 
+    // Evolution: drop a Stage1/Stage2 card onto active Pokemon
+    if (isEvolutionPokemon(card.card) && targetPlayer.active) {
+      if (!canAct(store, targetPlayerIdx, "evolve")) {
+        sourcePlayer.hand.push(card);
+        return;
+      }
+      const evoCheck = canEvolvePokemon(card.card, targetPlayer.active, store);
+      if (!evoCheck.ok) {
+        appendLog(store, evoCheck.reason!);
+        sourcePlayer.hand.push(card);
+        return;
+      }
+      evolvePokemon(store, targetPlayer.active, card, targetPlayerIdx);
+      return;
+    }
+
     if (!isBasicPokemon(card.card)) {
       sourcePlayer.hand.push(card);
       return;
@@ -727,6 +768,22 @@ export function useSimulatorActions(withStore: WithStore): {
         targetPlayer.energyAttachedThisTurn = true;
         store.selectedHandUid[targetPlayerIdx] = null;
         appendLog(store, `P${targetPlayerIdx + 1} attached ${card.card.name} to ${benchSlot.base.card.name}.`);
+        return;
+      }
+
+      // Evolution: drop a Stage1/Stage2 card onto a bench Pokemon
+      if (isEvolutionPokemon(card.card)) {
+        if (!canAct(store, targetPlayerIdx, "evolve")) {
+          targetPlayer.hand.push(card);
+          return;
+        }
+        const evoCheck = canEvolvePokemon(card.card, benchSlot, store);
+        if (!evoCheck.ok) {
+          appendLog(store, evoCheck.reason!);
+          targetPlayer.hand.push(card);
+          return;
+        }
+        evolvePokemon(store, benchSlot, card, targetPlayerIdx);
         return;
       }
 

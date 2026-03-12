@@ -268,6 +268,14 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
         </div>
 
         <aside className="logs-sidebar" aria-label="Game logs">
+          <div className="logs-header">
+            <h2>Game Log</h2>
+            <span className="logs-turn-info">
+              {store.phase === "setup"
+                ? "Setup Phase"
+                : `Turn ${store.turnNumber} · P${store.currentTurn + 1}`}
+            </span>
+          </div>
           <div className="logs-list">
             {store.logs.length === 0 ? (
               <p className="log-empty">No actions yet.</p>
