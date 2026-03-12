@@ -15,7 +15,7 @@ export function Draggable({
   children: ReactNode;
   style?: CSSProperties;
 }) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id,
     data: payload,
   });
@@ -24,6 +24,8 @@ export function Draggable({
     ...style,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     touchAction: "none",
+    position: "relative",
+    zIndex: isDragging ? 200 : style?.zIndex,
   };
 
   return (

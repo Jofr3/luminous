@@ -197,7 +197,7 @@
   .stadium {
     position: absolute;
     top: 50%;
-    right: clamp(160px, 20vw, 320px);
+    left: clamp(160px, 20vw, 320px);
     transform: translateY(-50%);
     z-index: 40;
   }
@@ -569,7 +569,6 @@
   .row {
     display: flex;
     justify-content: center;
-    perspective: 1000px;
     min-width: 0;
     padding: 0.25rem clamp(0.75rem, 2vw, 2rem) 0.5rem;
   }
@@ -617,7 +616,7 @@
       gap: clamp(0.5rem, 1vw, 1rem);
     }
 
-    .stadium { right: 80px; }
+    .stadium { left: 80px; }
   }
 
   @media (max-width: 900px) {
@@ -645,7 +644,7 @@
       gap: 0.5rem;
     }
 
-    .stadium { right: 60px; }
+    .stadium { left: 60px; }
     .bench-slot { flex-wrap: wrap; justify-content: center; }
     .row { padding-inline: 0.35rem 0.75rem; }
     .logs-sidebar {

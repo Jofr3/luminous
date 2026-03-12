@@ -809,6 +809,26 @@ export function useSimulatorActions(withStore: WithStore): {
     appendLog(store, `P${targetPlayerIdx + 1} discarded ${card.card.name}.`);
   });
 
+  const dropToStadium = withStore((store, payload: DragPayload) => {
+    if (payload.zone !== "hand") return;
+    const player = store.players[payload.playerIdx];
+    const card = removeHandCard(player, payload.uid);
+    if (!card) return;
+    if (card.card.category !== "Trainer" || card.card.trainer_type !== "Stadium") {
+      // Not a stadium card — put it back
+      player.hand.push(card);
+      return;
+    }
+    const oldStadium = store.stadium;
+    store.stadium = { card, playedByPlayer: payload.playerIdx };
+    appendLog(store, `P${payload.playerIdx + 1} plays ${card.card.name} (Stadium).`);
+    if (oldStadium) {
+      const oldOwner = store.players[oldStadium.playedByPlayer];
+      oldOwner.discard.push(oldStadium.card);
+      appendLog(store, `${oldStadium.card.card.name} is discarded.`);
+    }
+  });
+
   const dropToHand = withStore((store, payload: DragPayload, targetPlayerIdx: 0 | 1) => {
     if (payload.playerIdx !== targetPlayerIdx || payload.zone !== "prize") return;
 
@@ -830,6 +850,7 @@ export function useSimulatorActions(withStore: WithStore): {
       dropToBenchSlot,
       dropToDiscard,
       dropToHand,
+      dropToStadium,
       selectHandCard,
       useAttack,
       useAbility,

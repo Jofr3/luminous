@@ -1,6 +1,7 @@
 import {
   DndContext,
   PointerSensor,
+  pointerWithin,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -51,6 +52,10 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
     if (target.startsWith("hand:")) {
       const playerIdx = Number(target.split(":")[1]) as 0 | 1;
       void actions.dropToHand(payload, playerIdx);
+      return;
+    }
+    if (target === "stadium") {
+      void actions.dropToStadium(payload);
     }
   };
 
@@ -66,7 +71,7 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
     && !(store.turnNumber === 1 && store.currentTurn === store.firstPlayer);
 
   return (
-    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+    <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragEnd={handleDragEnd}>
       <div className="sim">
         <div className="play-area">
           <div className="board">
@@ -78,7 +83,7 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                 actions={actions}
               />
 
-              <div className="stadium">
+              <Droppable id="stadium" className="stadium">
                 <div className="slot" data-label="STADIUM">
                   {store.stadium && (
                     <div className="card-wrap">
@@ -90,7 +95,7 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                     </div>
                   )}
                 </div>
-              </div>
+              </Droppable>
 
               <PlayerMat
                 pIdx={store.currentTurn}

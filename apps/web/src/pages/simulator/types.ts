@@ -58,6 +58,7 @@ export interface SimulatorActions {
   dropToBenchSlot: (payload: DragPayload, targetPlayerIdx: 0 | 1, benchIdx: number) => Promise<void>;
   dropToDiscard: (payload: DragPayload, targetPlayerIdx: 0 | 1) => Promise<void>;
   dropToHand: (payload: DragPayload, targetPlayerIdx: 0 | 1) => Promise<void>;
+  dropToStadium: (payload: DragPayload) => Promise<void>;
   selectHandCard: (playerIdx: 0 | 1, uid: string) => Promise<void>;
   useAttack: (attackIdx: number) => Promise<void>;
   useAbility: (pokemonUid: string, abilityIdx: number) => Promise<void>;
