@@ -9,12 +9,14 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { imageUrl } from "~/lib/api";
+import type { SimulatorRulesResponse } from "~/lib/types";
 import { PlayerMat } from "./PlayerMat";
 import { Draggable, Droppable } from "./DndComponents";
 import type { DragPayload, SimulatorStore, SimulatorActions } from "./types";
 
 interface SimulatorBoardProps {
   store: SimulatorStore;
+  rules: SimulatorRulesResponse | null;
   actions: SimulatorActions;
   undo: () => void;
   redo: () => void;
@@ -22,9 +24,51 @@ interface SimulatorBoardProps {
   canRedo: boolean;
 }
 
-export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }: SimulatorBoardProps) {
+export function SimulatorBoard({ store, rules, actions, undo, redo, canUndo, canRedo }: SimulatorBoardProps) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const [activeDrag, setActiveDrag] = useState<DragPayload | null>(null);
+
+  const getHandRules = (uid: string) => rules?.hand[uid] ?? null;
+  const getAttackRule = (attackIdx: number) => rules?.attacks.find((attack) => attack.index === attackIdx) ?? null;
+  const getAbilityRule = (pokemonUid: string, abilityIdx: number) =>
+    rules?.abilities.find((ability) => ability.pokemonUid === pokemonUid && ability.abilityIdx === abilityIdx) ?? null;
+
+  const isDropAllowed = (payload: DragPayload, target: string): boolean => {
+    if (!rules) return true;
+
+    if (payload.zone === "hand") {
+      const handRules = getHandRules(payload.uid);
+      if (!handRules) return true;
+
+      if (target === "stadium") return handRules.stadium.allowed;
+      if (target.startsWith("trainer-use:")) return handRules.trainerUse.allowed;
+      if (target.startsWith("active:")) return handRules.active.allowed;
+      if (target.startsWith("bench:")) return handRules.bench.allowed;
+      if (target.startsWith("bench-slot:")) {
+        const [, playerIdx, benchIdx] = target.split(":");
+        const player = store.players[Number(playerIdx) as 0 | 1];
+        const pokemon = player.bench[Number(benchIdx)];
+        return pokemon ? (handRules.benchPokemon[pokemon.uid]?.allowed ?? false) : handRules.bench.allowed;
+      }
+    }
+
+    if (payload.zone === "bench" && target.startsWith("active:")) {
+      const targetPlayerIdx = Number(target.split(":")[1]) as 0 | 1;
+
+      if (store.pendingOpponentSwitch && payload.playerIdx === store.pendingOpponentSwitch.opponentIdx) {
+        return true;
+      }
+      if (store.pendingSelfSwitch && payload.playerIdx === store.pendingSelfSwitch.actorIdx && targetPlayerIdx === store.pendingSelfSwitch.actorIdx) {
+        return true;
+      }
+
+      if (payload.playerIdx === targetPlayerIdx && store.phase === "playing") {
+        return rules.retreatTargets[payload.uid]?.allowed ?? false;
+      }
+    }
+
+    return true;
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
     const payload = event.active.data.current as DragPayload | undefined;
@@ -38,6 +82,7 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
     if (!payload || !overId) return;
 
     const target = String(overId);
+    if (!isDropAllowed(payload, target)) return;
 
     // Handle trainer USE drop zone
     if (target.startsWith("trainer-use:")) {
@@ -111,8 +156,7 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
   const abilities = active?.base.card.abilities ?? [];
   const isPlaying = store.phase === "playing";
   const isCurrentTurn = true; // controls always show current player
-  const canAttackThisTurn = isPlaying && isCurrentTurn
-    && !(store.turnNumber === 1 && store.currentTurn === store.firstPlayer);
+  const canAttackThisTurn = isPlaying && isCurrentTurn;
 
   // Determine if we should show the USE drop zone:
   // only when dragging a non-Tool/non-TM trainer from the current player's hand
@@ -158,8 +202,9 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                   <button
                     type="button"
                     className="btn stadium-ability-btn"
+                    disabled={!rules?.stadiumAbility.allowed}
                     onClick={() => void actions.useStadiumAbility()}
-                    title={`Use ${store.stadium.card.card.name} ability`}
+                    title={rules?.stadiumAbility.reason ?? `Use ${store.stadium.card.card.name} ability`}
                   >
                     Use
                   </button>
@@ -209,9 +254,9 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
               </div>
               <button
                 className={`btn end-turn ${store.phase === "setup" && !currentPlayer.active ? "needs-active" : ""}`}
-                disabled={store.phase === "idle" || (store.phase === "setup" && !currentPlayer.active) || !!store.pendingHandSelection || !!store.pendingDeckSearch || !!store.pendingOpponentSwitch || !!store.pendingSelfSwitch || !!store.pendingRareCandy || !!store.pendingEvolveFromDeck}
+                disabled={store.phase === "idle" || !rules?.endTurn.allowed || !!store.pendingHandSelection || !!store.pendingDeckSearch || !!store.pendingOpponentSwitch || !!store.pendingSelfSwitch || !!store.pendingRareCandy || !!store.pendingEvolveFromDeck}
                 onClick={actions.endTurn}
-                title="End Turn"
+                title={rules?.endTurn.reason ?? "End Turn"}
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -240,12 +285,15 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                   <div className="action-group">
                     <span className="action-label">Attacks</span>
                     {attacks.map((atk, i) => (
+                      (() => {
+                        const attackRule = getAttackRule(i);
+                        return (
                       <button
                         key={`atk-${i}`}
                         className="action-btn attack-btn"
-                        disabled={!canAttackThisTurn}
+                        disabled={!canAttackThisTurn || !attackRule?.allowed}
                         onClick={() => void actions.useAttack(i)}
-                        title={atk.effect ?? atk.name}
+                        title={attackRule?.reason ?? atk.effect ?? atk.name}
                       >
                         <span className="action-name">{atk.name}</span>
                         {atk.damage != null && atk.damage !== 0 && (
@@ -259,6 +307,8 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                           </span>
                         )}
                       </button>
+                        );
+                      })()
                     ))}
                   </div>
                 )}
@@ -268,16 +318,21 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                   <div className="action-group">
                     <span className="action-label">Abilities</span>
                     {abilities.map((ab, i) => (
+                      (() => {
+                        const abilityRule = active ? getAbilityRule(active.uid, i) : null;
+                        return (
                       <button
                         key={`ab-${i}`}
                         className="action-btn ability-btn"
-                        disabled={active.usedAbilityThisTurn}
+                        disabled={!abilityRule?.allowed}
                         onClick={() => void actions.useAbility(active.uid, i)}
-                        title={ab.effect}
+                        title={abilityRule?.reason ?? ab.effect}
                       >
                         <span className="action-type">{ab.type}</span>
                         <span className="action-name">{ab.name}</span>
                       </button>
+                        );
+                      })()
                     ))}
                   </div>
                 )}
@@ -298,25 +353,41 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
             <Droppable id={`hand:${store.currentTurn}`} className="hand">
               <div className="row">
                 {currentPlayer.hand.map((card) => (
+                  (() => {
+                    const handRules = getHandRules(card.uid);
+                    const isDraggable = handRules
+                      ? handRules.active.allowed ||
+                        handRules.bench.allowed ||
+                        handRules.stadium.allowed ||
+                        handRules.trainerUse.allowed ||
+                        Object.values(handRules.benchPokemon).some((status) => status.allowed)
+                      : true;
+                    const trainerDoubleClickAllowed = handRules?.trainerUse.allowed ?? false;
+                    const trainerReason = handRules?.trainerUse.reason ?? undefined;
+                    return (
                   <button
                     key={card.uid}
                     className={`hand-card ${selectedUid === card.uid ? "selected" : ""}`}
                     onClick={() => void actions.selectHandCard(store.currentTurn, card.uid)}
                     onDoubleClick={() => {
-                      if (card.card.category === "Trainer" && isPlaying) {
+                      if (card.card.category === "Trainer" && isPlaying && trainerDoubleClickAllowed) {
                         void actions.playTrainerCard(card.uid);
                       }
                     }}
+                    title={card.card.category === "Trainer" ? trainerReason : undefined}
                   >
                     <Draggable
                       id={`hand:${store.currentTurn}:${card.uid}`}
                       payload={{ playerIdx: store.currentTurn, zone: "hand", uid: card.uid }}
                       className="card-wrap"
                       style={{ width: "100%", height: "100%" }}
+                      disabled={!isDraggable}
                     >
                       <img src={imageUrl(card.card.image) ?? ""} alt={card.card.name} />
                     </Draggable>
                   </button>
+                    );
+                  })()
                 ))}
               </div>
             </Droppable>

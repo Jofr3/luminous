@@ -7,6 +7,7 @@ import { cardsRoute } from "./routes/cards";
 import { setsRoute } from "./routes/sets";
 import { imagesRoute } from "./routes/images";
 import { decksRoute } from "./routes/decks";
+import { simulatorRoute } from "./routes/simulator";
 import { getCorsOrigin } from "./lib/cors";
 
 const app = new Hono<AppEnv>();
@@ -24,6 +25,7 @@ app.route("/api/cards", cardsRoute);
 app.route("/api/sets", setsRoute);
 app.route("/images", imagesRoute);
 app.route("/api/decks", decksRoute);
+app.route("/api/simulator", simulatorRoute);
 
 app.get("/", (c) => {
   return c.json({ message: "Luminous API" });

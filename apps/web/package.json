@@ -13,6 +13,7 @@
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@luminous/engine": "workspace:*",
+    "@luminous/simulator-core": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.0"

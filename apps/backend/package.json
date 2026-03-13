@@ -19,6 +19,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4",
     "@luminous/engine": "workspace:*",
+    "@luminous/simulator-core": "workspace:*",
     "@luminous/typescript-config": "workspace:*",
     "typescript": "^5.7.0",
     "wrangler": "^4"

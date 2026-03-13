@@ -117,9 +117,28 @@ export function useSimulatorState(initial: () => SimulatorStore) {
     setStore(next);
   }, []);
 
+  const commitStore = useCallback((next: SimulatorStore, options?: { history?: "push" | "skip" | "replace" }) => {
+    const prev = storeRef.current;
+    if (JSON.stringify(prev) === JSON.stringify(next)) {
+      return;
+    }
+
+    const historyMode = options?.history ?? "push";
+    if (historyMode === "push") {
+      historyRef.current = [...historyRef.current.slice(-(MAX_HISTORY - 1)), prev];
+      futureRef.current = [];
+    } else if (historyMode === "replace") {
+      futureRef.current = [];
+    }
+
+    setStore(next);
+  }, []);
+
   return {
     store,
     withStore,
+    getStore: () => storeRef.current,
+    commitStore,
     hydratedFromStorage: hydratedFromStorageRef.current,
     undo,
     redo,

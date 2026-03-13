@@ -8,16 +8,19 @@ export function Draggable({
   className,
   children,
   style,
+  disabled,
 }: {
   id: string;
   payload: DragPayload;
   className?: string;
   children: ReactNode;
   style?: CSSProperties;
+  disabled?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id,
     data: payload,
+    disabled,
   });
 
   const dragStyle: CSSProperties = {
@@ -26,6 +29,7 @@ export function Draggable({
     touchAction: "none",
     position: "relative",
     zIndex: isDragging ? 200 : style?.zIndex,
+    opacity: disabled ? 0.55 : style?.opacity,
   };
 
   return (

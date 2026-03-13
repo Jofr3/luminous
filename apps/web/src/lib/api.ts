@@ -3,8 +3,10 @@ import type {
   CardListResponse,
   DeckSummary,
   FilterOptions,
+  SimulatorRulesResponse,
   SetListResponse,
 } from "./types";
+import type { SimulatorAction, SimulatorStore } from "@luminous/simulator-core";
 
 export const API_URL =
   import.meta.env.VITE_API_URL ??
@@ -229,6 +231,69 @@ function isDeckListResponse(
   return hasDataEnvelope(value, Array.isArray);
 }
 
+function isRuleStatus(value: unknown): value is { allowed: boolean; reason: string | null } {
+  return (
+    isRecord(value) &&
+    typeof value.allowed === "boolean" &&
+    (typeof value.reason === "string" || value.reason === null)
+  );
+}
+
+function isAttackRule(value: unknown): value is SimulatorRulesResponse["attacks"][number] {
+  return (
+    isRecord(value) &&
+    typeof value.index === "number" &&
+    typeof value.name === "string" &&
+    isRuleStatus(value)
+  );
+}
+
+function isAbilityRule(value: unknown): value is SimulatorRulesResponse["abilities"][number] {
+  return (
+    isRecord(value) &&
+    typeof value.pokemonUid === "string" &&
+    typeof value.abilityIdx === "number" &&
+    typeof value.name === "string" &&
+    isRuleStatus(value)
+  );
+}
+
+function isRuleStatusMap(value: unknown): value is Record<string, { allowed: boolean; reason: string | null }> {
+  return isRecord(value) && Object.values(value).every(isRuleStatus);
+}
+
+function isHandCardRules(value: unknown): value is SimulatorRulesResponse["hand"][string] {
+  return (
+    isRecord(value) &&
+    isRuleStatus(value.active) &&
+    isRuleStatus(value.bench) &&
+    isRuleStatus(value.stadium) &&
+    isRuleStatus(value.trainerUse) &&
+    isRuleStatusMap(value.benchPokemon)
+  );
+}
+
+function isSimulatorRulesResponse(value: unknown): value is SimulatorRulesResponse {
+  return (
+    isRecord(value) &&
+    (value.currentPlayer === 0 || value.currentPlayer === 1) &&
+    typeof value.locked === "boolean" &&
+    isRuleStatus(value.endTurn) &&
+    isRuleStatus(value.stadiumAbility) &&
+    Array.isArray(value.attacks) &&
+    value.attacks.every(isAttackRule) &&
+    Array.isArray(value.abilities) &&
+    value.abilities.every(isAbilityRule) &&
+    isRuleStatusMap(value.retreatTargets) &&
+    isRecord(value.hand) &&
+    Object.values(value.hand).every(isHandCardRules)
+  );
+}
+
+function isUnknownValue(_value: unknown): _value is unknown {
+  return true;
+}
+
 export async function fetchDecks(): Promise<DeckSummary[]> {
   const res = await fetch(`${API_URL}/api/decks`);
   if (!res.ok) {
@@ -239,5 +304,72 @@ export async function fetchDecks(): Promise<DeckSummary[]> {
     isDeckListResponse,
     "Invalid decks payload",
   );
+  return payload.data;
+}
+
+export async function fetchSimulatorRules(store: unknown): Promise<SimulatorRulesResponse> {
+  const res = await fetch(`${API_URL}/api/simulator/rules`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ store }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  const payload = parseJson(
+    await res.json(),
+    (value): value is { data: SimulatorRulesResponse } => hasDataEnvelope(value, isSimulatorRulesResponse),
+    "Invalid simulator rules payload",
+  );
+
+  return payload.data;
+}
+
+export async function applySimulatorAction(store: unknown, action: SimulatorAction): Promise<unknown> {
+  const res = await fetch(`${API_URL}/api/simulator/apply-action`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ store, action }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  const payload = parseJson(
+    await res.json(),
+    (value): value is { data: unknown } => hasDataEnvelope(value, isUnknownValue),
+    "Invalid simulator action payload",
+  );
+
+  return payload.data;
+}
+
+export async function createSimulatorGame(deck1: string, deck2: string): Promise<SimulatorStore> {
+  const res = await fetch(`${API_URL}/api/simulator/new-game`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ deck1, deck2 }),
+  });
+
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null) as { error?: string; details?: string[] } | null;
+    throw new Error(payload?.details?.[0] ?? payload?.error ?? `API error: ${res.status}`);
+  }
+
+  const payload = parseJson(
+    await res.json(),
+    (value): value is { data: SimulatorStore } => hasDataEnvelope(value, isUnknownValue),
+    "Invalid simulator game payload",
+  );
+
   return payload.data;
 }

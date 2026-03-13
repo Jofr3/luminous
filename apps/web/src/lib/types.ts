@@ -103,3 +103,38 @@ export interface DeckSummary {
   decklist: string;
   created_at: string;
 }
+
+export interface RuleStatus {
+  allowed: boolean;
+  reason: string | null;
+}
+
+export interface AttackRule extends RuleStatus {
+  index: number;
+  name: string;
+}
+
+export interface AbilityRule extends RuleStatus {
+  pokemonUid: string;
+  abilityIdx: number;
+  name: string;
+}
+
+export interface HandCardRules {
+  active: RuleStatus;
+  bench: RuleStatus;
+  stadium: RuleStatus;
+  trainerUse: RuleStatus;
+  benchPokemon: Record<string, RuleStatus>;
+}
+
+export interface SimulatorRulesResponse {
+  currentPlayer: 0 | 1;
+  locked: boolean;
+  endTurn: RuleStatus;
+  stadiumAbility: RuleStatus;
+  attacks: AttackRule[];
+  abilities: AbilityRule[];
+  retreatTargets: Record<string, RuleStatus>;
+  hand: Record<string, HandCardRules>;
+}

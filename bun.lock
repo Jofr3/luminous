@@ -18,6 +18,7 @@
       "devDependencies": {
         "@cloudflare/workers-types": "^4",
         "@luminous/engine": "workspace:*",
+        "@luminous/simulator-core": "workspace:*",
         "@luminous/typescript-config": "workspace:*",
         "typescript": "^5.7.0",
         "wrangler": "^4",
@@ -29,6 +30,7 @@
       "dependencies": {
         "@dnd-kit/core": "^6.3.1",
         "@luminous/engine": "workspace:*",
+        "@luminous/simulator-core": "workspace:*",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
         "react-router-dom": "^7.0.0",
@@ -46,6 +48,17 @@
     "packages/engine": {
       "name": "@luminous/engine",
       "version": "0.0.0",
+      "devDependencies": {
+        "@luminous/typescript-config": "workspace:*",
+        "typescript": "^5.7.0",
+      },
+    },
+    "packages/simulator-core": {
+      "name": "@luminous/simulator-core",
+      "version": "0.0.0",
+      "dependencies": {
+        "@luminous/engine": "workspace:*",
+      },
       "devDependencies": {
         "@luminous/typescript-config": "workspace:*",
         "typescript": "^5.7.0",
@@ -236,6 +249,8 @@
     "@luminous/backend": ["@luminous/backend@workspace:apps/backend"],
 
     "@luminous/engine": ["@luminous/engine@workspace:packages/engine"],
+
+    "@luminous/simulator-core": ["@luminous/simulator-core@workspace:packages/simulator-core"],
 
     "@luminous/typescript-config": ["@luminous/typescript-config@workspace:packages/typescript-config"],
 

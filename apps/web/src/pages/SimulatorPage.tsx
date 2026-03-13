@@ -4,6 +4,7 @@ import { useSimulatorState } from "./simulator/useSimulatorState";
 import type { SimulatorStore } from "./simulator/types";
 import { createEmptyPlayer } from "./simulator/logic";
 import { useSimulatorActions } from "./simulator/useSimulatorActions";
+import { useSimulatorRules } from "./simulator/useSimulatorRules";
 import { fetchDecks } from "../lib/api";
 
 function createInitialStore(): SimulatorStore {
@@ -37,8 +38,9 @@ function createInitialStore(): SimulatorStore {
 }
 
 export function SimulatorPage() {
-  const { store, withStore, undo, redo, canUndo, canRedo } = useSimulatorState(createInitialStore);
-  const { actions, autoSetup } = useSimulatorActions(withStore);
+  const { store, withStore, getStore, commitStore, undo, redo, canUndo, canRedo } = useSimulatorState(createInitialStore);
+  const { actions, autoSetup } = useSimulatorActions(withStore, getStore, commitStore);
+  const rules = useSimulatorRules(store);
 
   useEffect(() => {
     if (store.gameStarted) return;
@@ -67,6 +69,7 @@ export function SimulatorPage() {
   return (
     <SimulatorBoard
       store={store}
+      rules={rules}
       actions={actions}
       undo={undo}
       redo={redo}
