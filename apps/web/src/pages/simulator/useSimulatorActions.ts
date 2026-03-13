@@ -780,7 +780,7 @@ export function useSimulatorActions(withStore: WithStore): {
     }
 
     if (engineCard.card.trainerType === "Tool" || engineCard.card.trainerType === "Technical Machine") {
-      appendLog(store, `${card.name} requires selecting a target Pokemon. That flow is not implemented yet.`);
+      appendLog(store, `Drag ${card.name} onto a Pokémon to attach it.`);
       return;
     }
 
@@ -948,6 +948,42 @@ export function useSimulatorActions(withStore: WithStore): {
       return;
     }
 
+    // Tool: drop onto active Pokemon to attach
+    if (card.card.category === "Trainer" && card.card.trainer_type === "Tool") {
+      if (!targetPlayer.active) {
+        sourcePlayer.hand.push(card);
+        return;
+      }
+      if (!canAct(store, targetPlayerIdx, "attach Tool")) {
+        sourcePlayer.hand.push(card);
+        return;
+      }
+      const hasTool = targetPlayer.active.attached.some((a) => a.card.trainer_type === "Tool");
+      if (hasTool) {
+        appendLog(store, `${targetPlayer.active.base.card.name} already has a Tool attached.`);
+        sourcePlayer.hand.push(card);
+        return;
+      }
+      targetPlayer.active.attached.push(card);
+      appendLog(store, `P${targetPlayerIdx + 1} attached ${card.card.name} to ${targetPlayer.active.base.card.name}.`);
+      return;
+    }
+
+    // Technical Machine: drop onto active Pokemon to attach
+    if (card.card.category === "Trainer" && card.card.trainer_type === "Technical Machine") {
+      if (!targetPlayer.active) {
+        sourcePlayer.hand.push(card);
+        return;
+      }
+      if (!canAct(store, targetPlayerIdx, "attach Technical Machine")) {
+        sourcePlayer.hand.push(card);
+        return;
+      }
+      targetPlayer.active.attached.push(card);
+      appendLog(store, `P${targetPlayerIdx + 1} attached ${card.card.name} to ${targetPlayer.active.base.card.name}. It gains a new attack.`);
+      return;
+    }
+
     // Evolution: drop a Stage1/Stage2 card onto active Pokemon
     if (isEvolutionPokemon(card.card) && targetPlayer.active) {
       if (!canAct(store, targetPlayerIdx, "evolve")) {
@@ -1028,6 +1064,36 @@ export function useSimulatorActions(withStore: WithStore): {
         targetPlayer.energyAttachedThisTurn = true;
         store.selectedHandUid[targetPlayerIdx] = null;
         appendLog(store, `P${targetPlayerIdx + 1} attached ${card.card.name} to ${benchSlot.base.card.name}.`);
+        return;
+      }
+
+      // Tool: drop onto bench Pokemon to attach
+      if (card.card.category === "Trainer" && card.card.trainer_type === "Tool") {
+        if (!canAct(store, targetPlayerIdx, "attach Tool")) {
+          targetPlayer.hand.push(card);
+          return;
+        }
+        const hasTool = benchSlot.attached.some((a) => a.card.trainer_type === "Tool");
+        if (hasTool) {
+          appendLog(store, `${benchSlot.base.card.name} already has a Tool attached.`);
+          targetPlayer.hand.push(card);
+          return;
+        }
+        benchSlot.attached.push(card);
+        store.selectedHandUid[targetPlayerIdx] = null;
+        appendLog(store, `P${targetPlayerIdx + 1} attached ${card.card.name} to ${benchSlot.base.card.name}.`);
+        return;
+      }
+
+      // Technical Machine: drop onto bench Pokemon to attach
+      if (card.card.category === "Trainer" && card.card.trainer_type === "Technical Machine") {
+        if (!canAct(store, targetPlayerIdx, "attach Technical Machine")) {
+          targetPlayer.hand.push(card);
+          return;
+        }
+        benchSlot.attached.push(card);
+        store.selectedHandUid[targetPlayerIdx] = null;
+        appendLog(store, `P${targetPlayerIdx + 1} attached ${card.card.name} to ${benchSlot.base.card.name}. It gains a new attack.`);
         return;
       }
 
