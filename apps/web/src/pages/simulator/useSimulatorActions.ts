@@ -481,6 +481,38 @@ function applyGenericEffects(
         }
         break;
       }
+      case "multi_coin_flip": {
+        let heads = 0;
+        for (let i = 0; i < effect.coins; i += 1) {
+          const flip = Math.random() < 0.5 ? "Heads" : "Tails";
+          if (flip === "Heads") heads += 1;
+        }
+        appendLog(store, `Flipped ${effect.coins} coins: ${heads} Heads, ${effect.coins - heads} Tails.`);
+        if (heads > 0) {
+          // Apply per-heads effects, multiplying damage amounts
+          for (const perHead of effect.perHeads) {
+            if (perHead.type === "damage") {
+              applyGenericEffects(store, actorIdx, opponentIdx, [
+                { ...perHead, amount: perHead.amount * heads },
+              ]);
+            } else {
+              for (let h = 0; h < heads; h += 1) {
+                applyGenericEffects(store, actorIdx, opponentIdx, [perHead]);
+              }
+            }
+          }
+        }
+        break;
+      }
+      case "cant_attack":
+        appendLog(store, `This Pokémon can't attack during its next turn.`);
+        break;
+      case "cant_retreat":
+        appendLog(store, `The Defending Pokémon can't retreat during the next turn.`);
+        break;
+      case "ignore_resistance":
+        appendLog(store, `This attack's damage isn't affected by Resistance.`);
+        break;
       case "prevent_damage":
         appendLog(store, `Damage prevention effect noted (not fully tracked in simulator).`);
         break;

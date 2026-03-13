@@ -1,4 +1,5 @@
 import type { AttackContext, DamageResult, EnergyType, PokemonInPlay, TypeModifier } from "./types";
+import { parseEffectText } from "./parser";
 
 export function getAttackerTypes(attacker: PokemonInPlay): EnergyType[] {
   return attacker.base.card.types;
@@ -68,8 +69,10 @@ export function calculateDamage(ctx: AttackContext): DamageResult {
     }
   }
 
-  // Step 4: Resistance
-  const resistance = findResistance(ctx.defender, attackerTypes);
+  // Step 4: Resistance (skipped if attack has ignore_resistance effect)
+  const effects = parseEffectText(ctx.attack.effect);
+  const ignoresResistance = effects.some((e) => e.type === "ignore_resistance");
+  const resistance = ignoresResistance ? null : findResistance(ctx.defender, attackerTypes);
   let afterResistance = afterWeakness;
   if (resistance && afterWeakness > 0) {
     const mod = parseModifierValue(resistance.value);
@@ -77,6 +80,9 @@ export function calculateDamage(ctx: AttackContext): DamageResult {
       afterResistance = afterWeakness + mod.amount;
       steps.push(`Resistance (${resistance.type} ${resistance.value}): ${afterWeakness} → ${afterResistance}`);
     }
+  }
+  if (ignoresResistance) {
+    steps.push("Resistance ignored by attack effect.");
   }
 
   // Step 5: Defender-side modifiers (abilities, tools, stadiums etc.)

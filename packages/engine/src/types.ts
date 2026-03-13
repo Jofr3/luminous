@@ -160,7 +160,11 @@ export type EffectAction =
   | { type: "discard_energy"; target: "self" | "defender"; count: number; energyType?: EnergyType | "any" }
   | { type: "special_condition"; target: "defender" | "self"; condition: SpecialCondition }
   | { type: "coin_flip"; onHeads: EffectAction[]; onTails: EffectAction[] }
+  | { type: "multi_coin_flip"; coins: number; perHeads: EffectAction[] }
   | { type: "prevent_damage"; turns: number }
+  | { type: "cant_attack"; turns: number }
+  | { type: "cant_retreat"; turns: number }
+  | { type: "ignore_resistance" }
   | { type: "switch_pokemon"; player: "self" | "opponent" }
   | { type: "search_deck"; player: "self"; filter?: string; count: number }
   | { type: "shuffle_hand_draw"; player: "self" | "opponent"; drawCount: number }

@@ -306,6 +306,31 @@ export function parseEffectText(text: string | null): EffectAction[] {
     actions.push({ type: "discard_card", source: "hand", count });
   }
 
+  // Multi-coin flip damage: "Flip N coins. This attack does X damage times the number of heads."
+  const multiCoinMatch = text.match(/flip (\d+) coins?.*does (\d+) damage (?:times|for each|×|x) (?:the number of )?heads/i);
+  if (multiCoinMatch) {
+    actions.push({
+      type: "multi_coin_flip",
+      coins: parseInt(multiCoinMatch[1], 10),
+      perHeads: [{ type: "damage", target: "defender", amount: parseInt(multiCoinMatch[2], 10) }],
+    });
+  }
+
+  // Can't attack next turn: "During your next turn, this Pokemon can't attack"
+  if (/during your next turn.*can'?t attack/i.test(text)) {
+    actions.push({ type: "cant_attack", turns: 1 });
+  }
+
+  // Can't retreat: "The Defending Pokemon can't retreat during your opponent's next turn"
+  if (/can'?t retreat/i.test(text)) {
+    actions.push({ type: "cant_retreat", turns: 1 });
+  }
+
+  // Ignore resistance
+  if (/(?:isn'?t|not) affected by resistance/i.test(text) || /don'?t apply resistance/i.test(text)) {
+    actions.push({ type: "ignore_resistance" });
+  }
+
   // If no patterns matched, create a custom action with the full text
   if (actions.length === 0 && text.trim().length > 0) {
     actions.push({ type: "custom", description: text });
