@@ -57,6 +57,16 @@ export function canPlayTrainer(
     return { allowed: false };
   }
 
+  // Cards that recover from discard pile: must have valid targets
+  if (data.effect && /from your discard pile into your hand/i.test(data.effect)) {
+    const discardPile = playerBoard.discard;
+    const hasPokemon = discardPile.some((c) => c.card.category === "Pokemon");
+    const hasBasicEnergy = discardPile.some((c) => c.card.category === "Energy" && c.card.energyType === "Normal");
+    if (!hasPokemon && !hasBasicEnergy) {
+      return { allowed: false };
+    }
+  }
+
   // Tools: must have a target Pokemon without a tool
   if (data.trainerType === "Tool") {
     const hasValidTarget = playerBoard.active !== null || playerBoard.bench.length > 0;
