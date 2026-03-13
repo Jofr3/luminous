@@ -175,6 +175,13 @@ function runPokemonCheckup(store: SimulatorStore, playerIdx: 0 | 1): void {
 }
 
 function finishTurn(store: SimulatorStore): void {
+  // Move trainer use zone cards to discard for current player
+  const currentPlayer = store.players[store.currentTurn];
+  if (currentPlayer.trainerUseZone.length > 0) {
+    currentPlayer.discard.push(...currentPlayer.trainerUseZone);
+    currentPlayer.trainerUseZone = [];
+  }
+
   runPokemonCheckup(store, 0);
   if (store.winner !== null) return;
 
@@ -498,11 +505,23 @@ function applyGenericEffects(
       case "switch_pokemon": {
         const targetIdx = effect.player === "self" ? actorIdx : opponentIdx;
         const targetPlayer = store.players[targetIdx];
-        const incoming = targetPlayer.bench.shift();
-        if (!targetPlayer.active || !incoming) {
+        if (!targetPlayer.active || targetPlayer.bench.length === 0) {
           appendLog(store, `Switch effect for P${targetIdx + 1} had no valid bench target.`);
           break;
         }
+        if (effect.player === "opponent") {
+          // Queue interactive opponent switch: let the user choose which bench Pokemon to drag in
+          store.pendingOpponentSwitch = {
+            actorIdx,
+            opponentIdx,
+            remainingEffects,
+          };
+          appendLog(store, `Choose a Pokémon from your opponent's Bench to switch with their Active Pokémon.`);
+          return;
+        }
+        // Self switch: auto-pick first bench (user already chose via retreat)
+        const incoming = targetPlayer.bench.shift();
+        if (!incoming) break;
         const previousActive = targetPlayer.active;
         previousActive.specialConditions = [];
         previousActive.poisonDamage = 10;
@@ -659,6 +678,7 @@ export function useSimulatorActions(withStore: WithStore): {
       store.stadium = null;
       store.pendingHandSelection = null;
       store.pendingDeckSearch = null;
+      store.pendingOpponentSwitch = null;
       store.turnNumber = 0;
       store.phase = "setup";
       store.gameStarted = true;
@@ -902,7 +922,7 @@ export function useSimulatorActions(withStore: WithStore): {
     applyGenericEffects(store, store.currentTurn, (store.currentTurn === 0 ? 1 : 0) as 0 | 1, result.effects);
 
     if (engineCard.card.trainerType === "Item" || engineCard.card.trainerType === "Supporter" || engineCard.card.trainerType === "ACE SPEC" || engineCard.card.trainerType === "Rocket's Secret Machine") {
-      player.discard.push(playedCard);
+      player.trainerUseZone.push(playedCard);
     }
   });
 
@@ -1002,6 +1022,56 @@ export function useSimulatorActions(withStore: WithStore): {
     appendLog(store, `P${pending.playerIdx + 1} finished searching their deck without taking cards.`);
     store.pendingDeckSearch = null;
   }, { history: "replace" });
+
+  // ---------------------------------------------------------------------------
+  // Opponent Switch (Boss's Orders etc.)
+  // ---------------------------------------------------------------------------
+
+  const confirmOpponentSwitch = withStore((store, benchUid: string) => {
+    const pending = store.pendingOpponentSwitch;
+    if (!pending) return;
+
+    const opponent = store.players[pending.opponentIdx];
+    if (!opponent.active) {
+      store.pendingOpponentSwitch = null;
+      return;
+    }
+
+    const benchIdx = opponent.bench.findIndex((p) => p.uid === benchUid);
+    if (benchIdx === -1) return;
+
+    const [incoming] = opponent.bench.splice(benchIdx, 1);
+    if (!incoming) return;
+
+    const previousActive = opponent.active;
+    previousActive.specialConditions = [];
+    previousActive.poisonDamage = 10;
+    previousActive.burnDamage = 20;
+    opponent.active = incoming;
+    opponent.bench.push(previousActive);
+    appendLog(store, `P${pending.opponentIdx + 1} switches ${previousActive.base.card.name} with ${incoming.base.card.name}.`);
+
+    const remainingEffects = pending.remainingEffects;
+    const actorIdx = pending.actorIdx;
+    const opponentIdx = pending.opponentIdx;
+    store.pendingOpponentSwitch = null;
+    applyGenericEffects(store, actorIdx, opponentIdx, remainingEffects);
+  }, { history: "replace" });
+
+  const cancelOpponentSwitch = withStore((store) => {
+    if (!store.pendingOpponentSwitch) return;
+    store.pendingOpponentSwitch = null;
+    appendLog(store, "Opponent switch cancelled.");
+  }, { history: "replace" });
+
+  // ---------------------------------------------------------------------------
+  // Trainer Use Drop Zone
+  // ---------------------------------------------------------------------------
+
+  const dropToTrainerUse = async (payload: DragPayload) => {
+    if (payload.zone !== "hand") return;
+    await playTrainerCard(payload.uid);
+  };
 
   // ---------------------------------------------------------------------------
   // Retreat
@@ -1396,6 +1466,9 @@ export function useSimulatorActions(withStore: WithStore): {
       toggleDeckSearchCard,
       confirmDeckSearch,
       cancelDeckSearch,
+      confirmOpponentSwitch,
+      cancelOpponentSwitch,
+      dropToTrainerUse,
       retreat,
       endTurn,
       newGame: startNewGame,

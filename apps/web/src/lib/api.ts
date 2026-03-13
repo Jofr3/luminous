@@ -9,7 +9,7 @@ import type {
 export const API_URL =
   import.meta.env.VITE_API_URL ??
   import.meta.env.PUBLIC_API_URL ??
-  "http://localhost:8787";
+  "";
 
 export function imageUrl(key: string | null): string | null {
   if (!key) return null;

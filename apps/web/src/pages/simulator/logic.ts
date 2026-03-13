@@ -127,6 +127,7 @@ export function createEmptyPlayer(): PlayerBoard {
     bench: [],
     takenPrizes: 0,
     mulligans: 0,
+    trainerUseZone: [],
     energyAttachedThisTurn: false,
     supporterPlayedThisTurn: false,
     retreatedThisTurn: false,

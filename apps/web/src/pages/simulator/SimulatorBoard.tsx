@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -5,6 +6,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import { imageUrl } from "~/lib/api";
 import { PlayerMat } from "./PlayerMat";
@@ -22,15 +24,36 @@ interface SimulatorBoardProps {
 
 export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }: SimulatorBoardProps) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const [activeDrag, setActiveDrag] = useState<DragPayload | null>(null);
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const payload = event.active.data.current as DragPayload | undefined;
+    setActiveDrag(payload ?? null);
+  };
 
   const handleDragEnd = (event: DragEndEvent) => {
+    setActiveDrag(null);
     const payload = event.active.data.current as DragPayload | undefined;
     const overId = event.over?.id;
     if (!payload || !overId) return;
 
     const target = String(overId);
+
+    // Handle trainer USE drop zone
+    if (target.startsWith("trainer-use:")) {
+      void actions.dropToTrainerUse(payload);
+      return;
+    }
+
     if (target.startsWith("active:")) {
       const playerIdx = Number(target.split(":")[1]) as 0 | 1;
+
+      // During pending opponent switch, dropping opponent bench onto active confirms the switch
+      if (store.pendingOpponentSwitch && payload.zone === "bench" && payload.playerIdx === store.pendingOpponentSwitch.opponentIdx) {
+        void actions.confirmOpponentSwitch(payload.uid);
+        return;
+      }
+
       void actions.dropToActive(payload, playerIdx);
       return;
     }
@@ -65,6 +88,7 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
   const active = currentPlayer.active;
   const pendingHandSelection = store.pendingHandSelection;
   const pendingDeckSearch = store.pendingDeckSearch;
+  const pendingOpponentSwitch = store.pendingOpponentSwitch;
   const pendingHandCards = pendingHandSelection
     ? store.players[pendingHandSelection.playerIdx].hand.filter((card) =>
       pendingHandSelection.candidateUids.includes(card.uid))
@@ -80,8 +104,18 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
   const canAttackThisTurn = isPlaying && isCurrentTurn
     && !(store.turnNumber === 1 && store.currentTurn === store.firstPlayer);
 
+  // Determine if we should show the USE drop zone:
+  // only when dragging a non-Tool/non-TM trainer from the current player's hand
+  const isDraggingTrainer = (() => {
+    if (!activeDrag || activeDrag.zone !== "hand" || activeDrag.playerIdx !== store.currentTurn) return false;
+    const card = currentPlayer.hand.find((c) => c.uid === activeDrag.uid);
+    if (!card || card.card.category !== "Trainer") return false;
+    if (card.card.trainer_type === "Tool" || card.card.trainer_type === "Technical Machine") return false;
+    return true;
+  })();
+
   return (
-    <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragEnd={handleDragEnd}>
+    <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setActiveDrag(null)}>
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div className="sim" onClick={(e) => {
         if (!(e.target as HTMLElement).closest(".hand-card")) {
@@ -96,6 +130,7 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                 isTop={true}
                 store={store}
                 actions={actions}
+                highlightBench={!!pendingOpponentSwitch}
               />
 
               <Droppable id="stadium" className="stadium">
@@ -117,6 +152,7 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                 isTop={false}
                 store={store}
                 actions={actions}
+                isDraggingTrainer={isDraggingTrainer}
               />
             </section>
             <div className="side">
@@ -379,6 +415,14 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                 </button>
               </div>
             </div>
+          </div>
+        )}
+        {pendingOpponentSwitch && (
+          <div className="opponent-switch-banner">
+            <span>Drag an opponent's Bench Pokémon to their Active spot</span>
+            <button type="button" className="btn" onClick={() => void actions.cancelOpponentSwitch()}>
+              Cancel
+            </button>
           </div>
         )}
       </div>

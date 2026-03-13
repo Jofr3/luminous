@@ -58,6 +58,12 @@ export interface PendingHandSelection {
   remainingEffects: import("@luminous/engine").EffectAction[];
 }
 
+export interface PendingOpponentSwitch {
+  actorIdx: 0 | 1;
+  opponentIdx: 0 | 1;
+  remainingEffects: import("@luminous/engine").EffectAction[];
+}
+
 export interface DragPayload {
   playerIdx: 0 | 1;
   zone: Zone;
@@ -73,6 +79,7 @@ export interface PlayerBoard {
   bench: PokemonInPlay[];
   takenPrizes: number;
   mulligans: number;
+  trainerUseZone: CardInstance[];
   energyAttachedThisTurn: boolean;
   supporterPlayedThisTurn: boolean;
   retreatedThisTurn: boolean;
@@ -96,6 +103,9 @@ export interface SimulatorActions {
   toggleDeckSearchCard: (uid: string) => Promise<void>;
   confirmDeckSearch: () => Promise<void>;
   cancelDeckSearch: () => Promise<void>;
+  confirmOpponentSwitch: (benchUid: string) => Promise<void>;
+  cancelOpponentSwitch: () => Promise<void>;
+  dropToTrainerUse: (payload: DragPayload) => Promise<void>;
   retreat: (benchUid: string) => Promise<void>;
   endTurn: () => Promise<void>;
   newGame: () => Promise<void>;
@@ -121,5 +131,6 @@ export interface SimulatorStore {
   stadium: StadiumInPlay | null;
   pendingHandSelection: PendingHandSelection | null;
   pendingDeckSearch: PendingDeckSearch | null;
+  pendingOpponentSwitch: PendingOpponentSwitch | null;
   gameStarted: boolean;
 }

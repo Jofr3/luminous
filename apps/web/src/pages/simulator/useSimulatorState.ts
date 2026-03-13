@@ -10,8 +10,10 @@ function migrateStore(store: SimulatorStore): SimulatorStore {
   store.stadium ??= null;
   store.pendingHandSelection ??= null;
   store.pendingDeckSearch ??= null;
+  store.pendingOpponentSwitch ??= null;
   store.gameStarted ??= store.phase !== "idle";
   for (const player of store.players) {
+    player.trainerUseZone ??= [];
     player.supporterPlayedThisTurn ??= false;
     player.retreatedThisTurn ??= false;
     const migratePokemon = (p: PokemonInPlay | null) => {

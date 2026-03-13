@@ -7,11 +7,14 @@ interface PlayerMatProps {
   isTop: boolean;
   store: SimulatorStore;
   actions: SimulatorActions;
+  isDraggingTrainer?: boolean;
+  highlightBench?: boolean;
 }
 
-export function PlayerMat({ pIdx, isTop, store, actions }: PlayerMatProps) {
+export function PlayerMat({ pIdx, isTop, store, actions, isDraggingTrainer, highlightBench }: PlayerMatProps) {
   const player = store.players[pIdx];
   const selectedPrize = store.selectedPrizeUid[pIdx];
+  const hasUsedTrainers = player.trainerUseZone.length > 0;
 
   return (
     <div
@@ -61,8 +64,22 @@ export function PlayerMat({ pIdx, isTop, store, actions }: PlayerMatProps) {
           )}
         </Droppable>
 
+        <Droppable id={`trainer-use:${pIdx}`} className={`trainer-use-zone ${isDraggingTrainer ? "drag-active" : ""}`}>
+          {hasUsedTrainers ? (
+            <div className="trainer-use-cards">
+              {player.trainerUseZone.map((card) => (
+                <div key={card.uid} className="trainer-use-card">
+                  <img src={imageUrl(card.card.image) ?? ""} alt={card.card.name} className="card-img" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <span className="trainer-use-label">USE</span>
+          )}
+        </Droppable>
+
         <Droppable id={`bench:${pIdx}`} className="bench">
-          <div className="bench-slot">
+          <div className={`bench-slot ${highlightBench ? "highlight-bench" : ""}`}>
             {player.bench.length === 0 && (
               <span className="label">Bench</span>
             )}
