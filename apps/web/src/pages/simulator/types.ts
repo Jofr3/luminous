@@ -70,6 +70,33 @@ export interface PendingSelfSwitch {
   remainingEffects: import("@luminous/engine").EffectAction[];
 }
 
+export interface PendingRareCandy {
+  actorIdx: 0 | 1;
+  remainingEffects: import("@luminous/engine").EffectAction[];
+}
+
+export interface PendingEvolveFromDeck {
+  actorIdx: 0 | 1;
+  opponentIdx: 0 | 1;
+  /** UIDs of valid evolution cards found in the deck */
+  candidateUids: string[];
+  selectedUids: string[];
+  /** How many evolutions total (e.g. 2 for Breeder's Nurturing) */
+  count: number;
+  /** How many evolutions completed so far */
+  evolved: number;
+  bypassFirstTurn: boolean;
+  bypassSameTurn: boolean;
+  endsTurn: boolean;
+  excludeSuffix?: string;
+  requireSuffix?: string;
+  requireNoAbilities?: boolean;
+  allowedNames?: string[];
+  title: string;
+  instruction: string;
+  remainingEffects: import("@luminous/engine").EffectAction[];
+}
+
 export interface DragPayload {
   playerIdx: 0 | 1;
   zone: Zone;
@@ -113,6 +140,11 @@ export interface SimulatorActions {
   cancelOpponentSwitch: () => Promise<void>;
   confirmSelfSwitch: (benchUid: string) => Promise<void>;
   cancelSelfSwitch: () => Promise<void>;
+  cancelRareCandy: () => Promise<void>;
+  toggleEvolveFromDeckCard: (uid: string) => Promise<void>;
+  confirmEvolveFromDeck: () => Promise<void>;
+  cancelEvolveFromDeck: () => Promise<void>;
+  useStadiumAbility: () => Promise<void>;
   dropToTrainerUse: (payload: DragPayload) => Promise<void>;
   retreat: (benchUid: string) => Promise<void>;
   endTurn: () => Promise<void>;
@@ -141,5 +173,8 @@ export interface SimulatorStore {
   pendingDeckSearch: PendingDeckSearch | null;
   pendingOpponentSwitch: PendingOpponentSwitch | null;
   pendingSelfSwitch: PendingSelfSwitch | null;
+  pendingRareCandy: PendingRareCandy | null;
+  pendingEvolveFromDeck: PendingEvolveFromDeck | null;
+  stadiumUsedThisTurn: [boolean, boolean];
   gameStarted: boolean;
 }

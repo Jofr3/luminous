@@ -12,6 +12,9 @@ function migrateStore(store: SimulatorStore): SimulatorStore {
   store.pendingDeckSearch ??= null;
   store.pendingOpponentSwitch ??= null;
   store.pendingSelfSwitch ??= null;
+  store.pendingRareCandy ??= null;
+  store.pendingEvolveFromDeck ??= null;
+  store.stadiumUsedThisTurn ??= [false, false];
   store.gameStarted ??= store.phase !== "idle";
   for (const player of store.players) {
     player.trainerUseZone ??= [];

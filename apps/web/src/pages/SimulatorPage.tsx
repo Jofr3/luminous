@@ -28,6 +28,10 @@ function createInitialStore(): SimulatorStore {
     pendingHandSelection: null,
     pendingDeckSearch: null,
     pendingOpponentSwitch: null,
+    pendingSelfSwitch: null,
+    pendingRareCandy: null,
+    pendingEvolveFromDeck: null,
+    stadiumUsedThisTurn: [false, false],
     gameStarted: false,
   };
 }

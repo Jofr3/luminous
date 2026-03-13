@@ -82,25 +82,59 @@ export function canEvolvePokemon(
   evoCard: CardSummary,
   target: PokemonInPlay,
   store: SimulatorStore,
+  options?: { rareCandy?: boolean },
 ): { ok: boolean; reason?: string } {
   if (!isEvolutionPokemon(evoCard))
     return { ok: false, reason: `${evoCard.name} is not an evolution card.` };
-  // Stage validation: Stage 1 can only evolve from Basic, Stage 2 can only evolve from Stage 1
   const targetStage = target.base.card.stage;
-  if (evoCard.stage === "Stage1" && targetStage !== "Basic")
-    return { ok: false, reason: `${evoCard.name} (Stage 1) can only evolve from a Basic Pokemon.` };
-  if (evoCard.stage === "Stage2" && targetStage !== "Stage1")
-    return { ok: false, reason: `${evoCard.name} (Stage 2) can only evolve from a Stage 1 Pokemon, not ${targetStage}.` };
+  if (options?.rareCandy) {
+    // Rare Candy: Stage 2 can evolve directly from Basic
+    if (evoCard.stage !== "Stage2")
+      return { ok: false, reason: `Rare Candy can only be used with Stage 2 Pokémon.` };
+    if (targetStage !== "Basic")
+      return { ok: false, reason: `Rare Candy can only target a Basic Pokémon, not ${targetStage}.` };
+  } else {
+    // Normal stage validation: Stage 1 from Basic, Stage 2 from Stage 1
+    if (evoCard.stage === "Stage1" && targetStage !== "Basic")
+      return { ok: false, reason: `${evoCard.name} (Stage 1) can only evolve from a Basic Pokemon.` };
+    if (evoCard.stage === "Stage2" && targetStage !== "Stage1")
+      return { ok: false, reason: `${evoCard.name} (Stage 2) can only evolve from a Stage 1 Pokemon, not ${targetStage}.` };
+  }
   // If evolve_from is known, validate the name match
-  if (evoCard.evolve_from && evoCard.evolve_from !== target.base.card.name)
+  // For Rare Candy, evolve_from points to the Stage 1 name, so skip this check
+  if (!options?.rareCandy && evoCard.evolve_from && evoCard.evolve_from !== target.base.card.name)
     return { ok: false, reason: `${evoCard.name} evolves from ${evoCard.evolve_from}, not ${target.base.card.name}.` };
+  // Check stadium-based evolution timing bypass (e.g. Forest of Vitality for Grass)
+  const stadiumBypass = getStadiumEvolveBypass(store, evoCard, target);
   // Cannot evolve on either player's first turn (turns 1 and 2)
-  if (store.turnNumber <= 2)
+  if (store.turnNumber <= 2 && !stadiumBypass.bypassFirstTurn)
     return { ok: false, reason: `Cannot evolve on a player's first turn.` };
   // Cannot evolve a Pokemon on the same turn it was played/evolved
-  if (target.turnPlayedOrEvolved >= store.turnNumber)
+  if (target.turnPlayedOrEvolved >= store.turnNumber && !stadiumBypass.bypassSameTurn)
     return { ok: false, reason: `${target.base.card.name} was played or evolved this turn.` };
   return { ok: true };
+}
+
+/** Check if an active stadium grants evolution timing bypasses */
+function getStadiumEvolveBypass(
+  store: SimulatorStore,
+  evoCard: CardSummary,
+  target: PokemonInPlay,
+): { bypassFirstTurn: boolean; bypassSameTurn: boolean } {
+  if (!store.stadium) return { bypassFirstTurn: false, bypassSameTurn: false };
+  const effect = store.stadium.card.card.effect;
+  if (!effect) return { bypassFirstTurn: false, bypassSameTurn: false };
+
+  // Forest of Vitality: Grass Pokemon can evolve into Grass Pokemon during the turn played (not first turn)
+  if (/pok[eé]mon can evolve.*during the turn they play those pok[eé]mon.*except during their first turn/is.test(effect)) {
+    const targetIsGrass = target.base.card.types?.includes("Grass");
+    const evoIsGrass = evoCard.types?.includes("Grass");
+    if (targetIsGrass && evoIsGrass) {
+      return { bypassFirstTurn: false, bypassSameTurn: true };
+    }
+  }
+
+  return { bypassFirstTurn: false, bypassSameTurn: false };
 }
 
 export function makePokemonInPlay(instance: CardInstance, turnNumber = 0): PokemonInPlay {

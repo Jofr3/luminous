@@ -102,6 +102,11 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
     ? store.players[pendingDeckSearch.playerIdx].deck.filter((card) =>
       pendingDeckSearch.candidateUids.includes(card.uid))
     : [];
+  const pendingEvolveFromDeck = store.pendingEvolveFromDeck;
+  const pendingEvolveDeckCards = pendingEvolveFromDeck
+    ? store.players[pendingEvolveFromDeck.actorIdx].deck.filter((card) =>
+      pendingEvolveFromDeck.candidateUids.includes(card.uid))
+    : [];
   const attacks = active?.base.card.attacks ?? [];
   const abilities = active?.base.card.abilities ?? [];
   const isPlaying = store.phase === "playing";
@@ -149,6 +154,16 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                     </div>
                   )}
                 </div>
+                {store.stadium && store.phase === "playing" && !store.stadiumUsedThisTurn[store.currentTurn] && (
+                  <button
+                    type="button"
+                    className="btn stadium-ability-btn"
+                    onClick={() => void actions.useStadiumAbility()}
+                    title={`Use ${store.stadium.card.card.name} ability`}
+                  >
+                    Use
+                  </button>
+                )}
               </Droppable>
 
               <PlayerMat
@@ -194,7 +209,7 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
               </div>
               <button
                 className={`btn end-turn ${store.phase === "setup" && !currentPlayer.active ? "needs-active" : ""}`}
-                disabled={store.phase === "idle" || (store.phase === "setup" && !currentPlayer.active)}
+                disabled={store.phase === "idle" || (store.phase === "setup" && !currentPlayer.active) || !!store.pendingHandSelection || !!store.pendingDeckSearch || !!store.pendingOpponentSwitch || !!store.pendingSelfSwitch || !!store.pendingRareCandy || !!store.pendingEvolveFromDeck}
                 onClick={actions.endTurn}
                 title="End Turn"
               >
@@ -414,6 +429,52 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                   className="btn"
                   disabled={pendingDeckSearch.selectedUids.length < pendingDeckSearch.minCount}
                   onClick={() => void actions.confirmDeckSearch()}
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {pendingEvolveFromDeck && (
+          <div className="deck-search-modal" role="dialog" aria-modal="true" aria-label={pendingEvolveFromDeck.title}>
+            <div className="deck-search-modal__panel">
+              <div className="deck-search-modal__header">
+                <div>
+                  <h2>{pendingEvolveFromDeck.title}</h2>
+                  <p>{pendingEvolveFromDeck.instruction}</p>
+                </div>
+                <span className="deck-search-modal__count">
+                  {pendingEvolveFromDeck.selectedUids.length} / 1
+                </span>
+              </div>
+              <div className="deck-search-modal__grid">
+                {pendingEvolveDeckCards.map((card) => {
+                  const selected = pendingEvolveFromDeck.selectedUids.includes(card.uid);
+                  const disabled = !selected && pendingEvolveFromDeck.selectedUids.length >= 1;
+                  return (
+                    <button
+                      key={card.uid}
+                      type="button"
+                      className={`deck-search-card ${selected ? "selected" : ""}`}
+                      disabled={disabled}
+                      onClick={() => void actions.toggleEvolveFromDeckCard(card.uid)}
+                    >
+                      <img src={imageUrl(card.card.image) ?? ""} alt={card.card.name} />
+                      <span className="deck-search-card__name">{card.card.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="deck-search-modal__actions">
+                <button type="button" className="btn" onClick={() => void actions.cancelEvolveFromDeck()}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={pendingEvolveFromDeck.selectedUids.length !== 1}
+                  onClick={() => void actions.confirmEvolveFromDeck()}
                 >
                   Confirm
                 </button>

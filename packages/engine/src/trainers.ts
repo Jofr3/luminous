@@ -66,6 +66,51 @@ export function canPlayTrainer(
     }
   }
 
+  // Rare Candy: not first turn, must have a Basic in play (not played this turn) and a Stage 2 in hand
+  const hasRareCandy = effects.some((e) => e.type === "rare_candy");
+  if (hasRareCandy) {
+    if (state.turnNumber <= 2) {
+      return { allowed: false, reason: "Cannot use Rare Candy on a player's first turn." };
+    }
+    const allInPlay = [playerBoard.active, ...playerBoard.bench].filter((p): p is PokemonInPlay => p !== null);
+    const hasValidBasic = allInPlay.some((p) => p.base.card.stage === "Basic" && p.turnPlayedOrEvolved < state.turnNumber);
+    if (!hasValidBasic) {
+      return { allowed: false, reason: "No eligible Basic Pokémon in play (must not have been played this turn)." };
+    }
+    const hasStage2InHand = playerBoard.hand.some((c) => c.card.category === "Pokemon" && c.card.stage === "Stage2");
+    if (!hasStage2InHand) {
+      return { allowed: false, reason: "No Stage 2 Pokémon in your hand." };
+    }
+  }
+
+  // Evolve-from-deck cards: must have valid targets in play and evolutions in deck
+  const evolveFromDeck = effects.find((e) => e.type === "evolve_from_deck");
+  if (evolveFromDeck && evolveFromDeck.type === "evolve_from_deck") {
+    if (!evolveFromDeck.bypassFirstTurn && state.turnNumber <= 2) {
+      return { allowed: false, reason: "Cannot use this card on a player's first turn." };
+    }
+    const allInPlay = [playerBoard.active, ...playerBoard.bench].filter((p): p is PokemonInPlay => p !== null);
+    const eligiblePokemon = allInPlay.filter((p) => {
+      if (!evolveFromDeck.bypassSameTurn && p.turnPlayedOrEvolved >= state.turnNumber) return false;
+      return true;
+    });
+    if (eligiblePokemon.length === 0) {
+      return { allowed: false, reason: "No eligible Pokémon in play to evolve." };
+    }
+    const hasEvoInDeck = playerBoard.deck.some((c) => {
+      if (c.card.category !== "Pokemon" || c.card.stage === "Basic" || !c.card.stage) return false;
+      if (!c.card.evolveFrom) return false;
+      if (evolveFromDeck.excludeSuffix && c.card.suffix === evolveFromDeck.excludeSuffix) return false;
+      if (evolveFromDeck.requireSuffix && c.card.suffix !== evolveFromDeck.requireSuffix) return false;
+      if (evolveFromDeck.requireNoAbilities && c.card.abilities && c.card.abilities.length > 0) return false;
+      if (evolveFromDeck.allowedNames && !evolveFromDeck.allowedNames.some((n) => c.card.name.startsWith(n))) return false;
+      return eligiblePokemon.some((p) => p.base.card.name === c.card.evolveFrom);
+    });
+    if (!hasEvoInDeck) {
+      return { allowed: false, reason: "No valid evolution targets in your deck." };
+    }
+  }
+
   // Cards that recover from discard pile: must have valid targets
   if (data.effect && /from your discard pile into your hand/i.test(data.effect)) {
     const discardPile = playerBoard.discard;

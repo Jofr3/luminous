@@ -184,4 +184,26 @@ export type EffectAction =
   | { type: "bounce"; target: "defender" | "self"; destination: "hand" | "deck" }
   | { type: "discard_card"; source: "hand" | "field"; count: number }
   | { type: "custom"; description: string }
-  | { type: "play_condition"; condition: "opponent_prizes"; count: number; exact: boolean };
+  | { type: "play_condition"; condition: "opponent_prizes"; count: number; exact: boolean }
+  | { type: "rare_candy" }
+  | {
+    type: "evolve_from_deck";
+    count: number;
+    bypassFirstTurn: boolean;
+    bypassSameTurn: boolean;
+    endsTurn: boolean;
+    excludeSuffix?: string;
+    requireSuffix?: string;
+    requireNoAbilities?: boolean;
+    allowedNames?: string[];
+  }
+  | { type: "end_turn" }
+  | { type: "stadium_evolve_timing"; bypassSameTurn: boolean; bypassFirstTurn: boolean; typeFilter?: string }
+  | {
+    type: "stadium_chained_evolution";
+  }
+  | {
+    type: "stadium_fossil_evolution";
+    count: number;
+    endsTurn: boolean;
+  };

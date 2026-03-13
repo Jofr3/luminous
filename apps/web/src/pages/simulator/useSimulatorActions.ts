@@ -197,6 +197,7 @@ function finishTurn(store: SimulatorStore): void {
   nextPlayer.energyAttachedThisTurn = false;
   nextPlayer.supporterPlayedThisTurn = false;
   nextPlayer.retreatedThisTurn = false;
+  store.stadiumUsedThisTurn[next] = false;
 
   if (nextPlayer.active) nextPlayer.active.usedAbilityThisTurn = false;
   for (const pokemon of nextPlayer.bench) pokemon.usedAbilityThisTurn = false;
@@ -526,6 +527,63 @@ function applyGenericEffects(
           remainingEffects,
         };
         appendLog(store, `Choose one of your Benched Pokémon to switch with your Active Pokémon.`);
+        return;
+      }
+      case "rare_candy": {
+        store.pendingRareCandy = {
+          actorIdx,
+          remainingEffects,
+        };
+        appendLog(store, `Rare Candy: drag a Stage 2 Pokémon from your hand onto an eligible Basic Pokémon.`);
+        return;
+      }
+      case "evolve_from_deck": {
+        // Find all valid evolution cards in the deck
+        const allInPlay = [actor.active, ...actor.bench].filter((p): p is PokemonInPlay => p !== null);
+        const eligiblePokemon = allInPlay.filter((p) => {
+          if (!effect.bypassSameTurn && p.turnPlayedOrEvolved >= store.turnNumber) return false;
+          return true;
+        });
+        const candidateUids = actor.deck.filter((c) => {
+          if (c.card.category !== "Pokemon" || c.card.stage === "Basic" || !c.card.stage) return false;
+          if (!c.card.evolve_from) return false;
+          if (effect.excludeSuffix && c.card.suffix === effect.excludeSuffix) return false;
+          if (effect.requireSuffix && c.card.suffix !== effect.requireSuffix) return false;
+          if (effect.requireNoAbilities && c.card.abilities && c.card.abilities.length > 0) return false;
+          if (effect.allowedNames && !effect.allowedNames.some((n) => c.card.name.startsWith(n))) return false;
+          return eligiblePokemon.some((p) => p.base.card.name === c.card.evolve_from);
+        }).map((c) => c.uid);
+
+        if (candidateUids.length === 0) {
+          appendLog(store, "No valid evolution targets found in deck.");
+          actor.deck = shuffle(actor.deck);
+          break;
+        }
+
+        store.pendingEvolveFromDeck = {
+          actorIdx,
+          opponentIdx,
+          candidateUids,
+          selectedUids: [],
+          count: effect.count,
+          evolved: 0,
+          bypassFirstTurn: effect.bypassFirstTurn,
+          bypassSameTurn: effect.bypassSameTurn,
+          endsTurn: effect.endsTurn,
+          excludeSuffix: effect.excludeSuffix,
+          requireSuffix: effect.requireSuffix,
+          requireNoAbilities: effect.requireNoAbilities,
+          allowedNames: effect.allowedNames,
+          title: "Evolve from Deck",
+          instruction: `Select a Pokémon to evolve (${effect.count - 0} remaining).`,
+          remainingEffects,
+        };
+        appendLog(store, `Search your deck for a Pokémon to evolve.`);
+        return;
+      }
+      case "end_turn": {
+        appendLog(store, "Turn ends (card effect).");
+        finishTurn(store);
         return;
       }
       case "shuffle_hand_draw": {
@@ -1103,6 +1161,244 @@ export function useSimulatorActions(withStore: WithStore): {
     appendLog(store, "Self switch cancelled.");
   }, { history: "replace" });
 
+  const cancelRareCandy = withStore((store) => {
+    if (!store.pendingRareCandy) return;
+    store.pendingRareCandy = null;
+    appendLog(store, "Rare Candy cancelled.");
+  }, { history: "replace" });
+
+  // ---------------------------------------------------------------------------
+  // Evolve from Deck (Evosoda, Wally, Boost Shake, etc.)
+  // ---------------------------------------------------------------------------
+
+  const toggleEvolveFromDeckCard = withStore((store, uid: string) => {
+    const pending = store.pendingEvolveFromDeck;
+    if (!pending) return;
+    if (!pending.candidateUids.includes(uid)) return;
+
+    // Single selection: toggle the one card
+    if (pending.selectedUids.includes(uid)) {
+      pending.selectedUids = [];
+    } else {
+      pending.selectedUids = [uid];
+    }
+  }, { history: "skip" });
+
+  const confirmEvolveFromDeck = withStore((store) => {
+    const pending = store.pendingEvolveFromDeck;
+    if (!pending || pending.selectedUids.length !== 1) return;
+
+    const actor = store.players[pending.actorIdx];
+    const selectedUid = pending.selectedUids[0];
+    const cardIdx = actor.deck.findIndex((c) => c.uid === selectedUid);
+    if (cardIdx === -1) return;
+
+    const evoCard = actor.deck[cardIdx];
+
+    // Find the target Pokemon in play whose name matches evolve_from
+    const allInPlay: { pokemon: PokemonInPlay; location: "active" | "bench" }[] = [];
+    if (actor.active) allInPlay.push({ pokemon: actor.active, location: "active" });
+    for (const b of actor.bench) allInPlay.push({ pokemon: b, location: "bench" });
+
+    const validTarget = allInPlay.find((entry) => {
+      const p = entry.pokemon;
+      if (!pending.bypassSameTurn && p.turnPlayedOrEvolved >= store.turnNumber) return false;
+      if (p.base.card.name !== evoCard.card.evolve_from) return false;
+      // Stage validation: Stage 1 from Basic, Stage 2 from Stage 1
+      if (evoCard.card.stage === "Stage1" && p.base.card.stage !== "Basic") return false;
+      if (evoCard.card.stage === "Stage2" && p.base.card.stage !== "Stage1") return false;
+      return true;
+    });
+
+    if (!validTarget) {
+      appendLog(store, `No valid target Pokémon in play for ${evoCard.card.name}.`);
+      return;
+    }
+
+    // Remove evo card from deck and evolve
+    actor.deck.splice(cardIdx, 1);
+    evolvePokemon(store, validTarget.pokemon, evoCard, pending.actorIdx);
+    pending.evolved += 1;
+
+    // Check if more evolutions are needed
+    if (pending.evolved < pending.count) {
+      // Recompute candidates for the next evolution
+      const eligiblePokemon = [actor.active, ...actor.bench].filter((p): p is PokemonInPlay => {
+        if (!p) return false;
+        if (!pending.bypassSameTurn && p.turnPlayedOrEvolved >= store.turnNumber) return false;
+        return true;
+      });
+      const newCandidates = actor.deck.filter((c) => {
+        if (c.card.category !== "Pokemon" || c.card.stage === "Basic" || !c.card.stage) return false;
+        if (!c.card.evolve_from) return false;
+        if (pending.excludeSuffix && c.card.suffix === pending.excludeSuffix) return false;
+        if (pending.requireSuffix && c.card.suffix !== pending.requireSuffix) return false;
+        if (pending.requireNoAbilities && c.card.abilities && c.card.abilities.length > 0) return false;
+        if (pending.allowedNames && !pending.allowedNames.some((n) => c.card.name.startsWith(n))) return false;
+        return eligiblePokemon.some((p) => p.base.card.name === c.card.evolve_from);
+      }).map((c) => c.uid);
+
+      if (newCandidates.length > 0) {
+        pending.candidateUids = newCandidates;
+        pending.selectedUids = [];
+        pending.instruction = `Select a Pokémon to evolve (${pending.count - pending.evolved} remaining).`;
+        return;
+      }
+      // No more valid targets, finish up
+    }
+
+    // Grand Tree chained evolution: after Stage 1, offer Stage 2
+    const chainedEvo = pending.remainingEffects.find((e) => e.type === "stadium_chained_evolution");
+    if (chainedEvo && evoCard.card.stage === "Stage1") {
+      // Look for Stage 2 cards that evolve from the just-evolved Stage 1
+      const evolvedName = evoCard.card.name;
+      const stage2Candidates = actor.deck.filter((c) =>
+        c.card.category === "Pokemon" && c.card.stage === "Stage2" && c.card.evolve_from === evolvedName,
+      ).map((c) => c.uid);
+
+      if (stage2Candidates.length > 0) {
+        pending.candidateUids = stage2Candidates;
+        pending.selectedUids = [];
+        pending.count = 1;
+        pending.evolved = 0;
+        pending.title = "Grand Tree (Stage 2)";
+        pending.instruction = `Optionally select a Stage 2 Pokémon that evolves from ${evolvedName}.`;
+        pending.remainingEffects = pending.remainingEffects.filter((e) => e.type !== "stadium_chained_evolution");
+        return;
+      }
+      // No Stage 2 available, finish
+    }
+
+    // Done: shuffle deck, apply remaining effects
+    actor.deck = shuffle(actor.deck);
+    const endsTurn = pending.endsTurn;
+    const remainingEffects = pending.remainingEffects.filter((e) => e.type !== "stadium_chained_evolution");
+    const actorIdx = pending.actorIdx;
+    const opponentIdx = pending.opponentIdx;
+    store.pendingEvolveFromDeck = null;
+    applyGenericEffects(store, actorIdx, opponentIdx, remainingEffects);
+
+    if (endsTurn) {
+      appendLog(store, "Turn ends (card effect).");
+      finishTurn(store);
+    }
+  }, { history: "replace" });
+
+  const cancelEvolveFromDeck = withStore((store) => {
+    if (!store.pendingEvolveFromDeck) return;
+    const actor = store.players[store.pendingEvolveFromDeck.actorIdx];
+    actor.deck = shuffle(actor.deck);
+    store.pendingEvolveFromDeck = null;
+    appendLog(store, "Evolution search cancelled.");
+  }, { history: "replace" });
+
+  // ---------------------------------------------------------------------------
+  // Stadium Abilities (Grand Tree, Pokémon Research Lab)
+  // ---------------------------------------------------------------------------
+
+  const useStadiumAbility = withStore((store) => {
+    if (!canAct(store, store.currentTurn, "use Stadium ability")) return;
+    if (!store.stadium) {
+      appendLog(store, "No Stadium in play.");
+      return;
+    }
+    if (store.stadiumUsedThisTurn[store.currentTurn]) {
+      appendLog(store, "Stadium ability already used this turn.");
+      return;
+    }
+
+    const stadiumEffect = store.stadium.card.card.effect;
+    if (!stadiumEffect) return;
+    const effects = parseEffectText(stadiumEffect);
+    const actorIdx = store.currentTurn;
+    const opponentIdx = (actorIdx === 0 ? 1 : 0) as 0 | 1;
+
+    // Grand Tree: chained evolution from deck (Basic → Stage 1 → Stage 2)
+    const chainedEvo = effects.find((e) => e.type === "stadium_chained_evolution");
+    if (chainedEvo) {
+      const actor = store.players[actorIdx];
+      // Find eligible Basic Pokemon (not first turn, not played this turn)
+      if (store.turnNumber <= 2) {
+        appendLog(store, "Cannot use Grand Tree on a player's first turn.");
+        return;
+      }
+      const eligibleBasics = [actor.active, ...actor.bench].filter((p): p is PokemonInPlay =>
+        p !== null && p.base.card.stage === "Basic" && p.turnPlayedOrEvolved < store.turnNumber,
+      );
+      if (eligibleBasics.length === 0) {
+        appendLog(store, "No eligible Basic Pokémon in play.");
+        return;
+      }
+      // Find Stage 1 cards in deck that evolve from eligible basics
+      const stage1Candidates = actor.deck.filter((c) =>
+        c.card.category === "Pokemon" && c.card.stage === "Stage1" && c.card.evolve_from &&
+        eligibleBasics.some((p) => p.base.card.name === c.card.evolve_from),
+      ).map((c) => c.uid);
+
+      if (stage1Candidates.length === 0) {
+        appendLog(store, "No Stage 1 evolution targets in deck.");
+        return;
+      }
+
+      store.stadiumUsedThisTurn[actorIdx] = true;
+      store.pendingEvolveFromDeck = {
+        actorIdx,
+        opponentIdx,
+        candidateUids: stage1Candidates,
+        selectedUids: [],
+        count: 1,
+        evolved: 0,
+        bypassFirstTurn: false,
+        bypassSameTurn: false,
+        endsTurn: false,
+        title: "Grand Tree",
+        instruction: "Select a Stage 1 Pokémon from your deck to evolve a Basic Pokémon.",
+        remainingEffects: [{ type: "stadium_chained_evolution" }],
+      };
+      appendLog(store, "Grand Tree: search your deck for a Stage 1 evolution.");
+      return;
+    }
+
+    // Pokémon Research Lab: search for up to 2 Fossil evolutions to bench
+    const fossilEvo = effects.find((e) => e.type === "stadium_fossil_evolution");
+    if (fossilEvo && fossilEvo.type === "stadium_fossil_evolution") {
+      const actor = store.players[actorIdx];
+      const fossilEvoCandidates = actor.deck.filter((c) =>
+        c.card.category === "Pokemon" && c.card.evolve_from === "Unidentified Fossil",
+      ).map((c) => c.uid);
+
+      if (fossilEvoCandidates.length === 0) {
+        appendLog(store, "No Pokémon that evolve from Unidentified Fossil in your deck.");
+        return;
+      }
+      if (actor.bench.length >= 5) {
+        appendLog(store, "Your Bench is full.");
+        return;
+      }
+
+      store.stadiumUsedThisTurn[actorIdx] = true;
+      // Use the existing deck search mechanism for fossils → bench
+      const maxCount = Math.min(fossilEvo.count, 5 - actor.bench.length);
+      store.pendingDeckSearch = {
+        actorIdx,
+        opponentIdx,
+        playerIdx: actorIdx,
+        count: maxCount,
+        minCount: 0,
+        destination: "bench",
+        candidateUids: fossilEvoCandidates,
+        selectedUids: [],
+        title: "Pokémon Research Lab",
+        instruction: `Select up to ${maxCount} Pokémon that evolve from Unidentified Fossil to put on your Bench.`,
+        remainingEffects: [{ type: "end_turn" }],
+      };
+      appendLog(store, "Pokémon Research Lab: search your deck for Fossil evolutions.");
+      return;
+    }
+
+    appendLog(store, "This Stadium has no activatable ability.");
+  });
+
   // ---------------------------------------------------------------------------
   // Trainer Use Drop Zone
   // ---------------------------------------------------------------------------
@@ -1292,12 +1588,29 @@ export function useSimulatorActions(withStore: WithStore): {
         sourcePlayer.hand.push(card);
         return;
       }
-      const evoCheck = canEvolvePokemon(card.card, targetPlayer.active, store);
+      const isRareCandy = !!store.pendingRareCandy && store.pendingRareCandy.actorIdx === targetPlayerIdx;
+      const evoCheck = canEvolvePokemon(card.card, targetPlayer.active, store, { rareCandy: isRareCandy });
       if (!evoCheck.ok) {
-        sourcePlayer.hand.push(card);
-        return;
+        // If Rare Candy is pending but normal evo also fails, try the other path
+        if (!isRareCandy) {
+          const rcCheck = store.pendingRareCandy && store.pendingRareCandy.actorIdx === targetPlayerIdx
+            ? canEvolvePokemon(card.card, targetPlayer.active, store, { rareCandy: true })
+            : null;
+          if (!rcCheck?.ok) {
+            sourcePlayer.hand.push(card);
+            return;
+          }
+        } else {
+          sourcePlayer.hand.push(card);
+          return;
+        }
       }
       evolvePokemon(store, targetPlayer.active, card, targetPlayerIdx);
+      if (isRareCandy) {
+        const remaining = store.pendingRareCandy!.remainingEffects;
+        store.pendingRareCandy = null;
+        applyGenericEffects(store, targetPlayerIdx, (targetPlayerIdx === 0 ? 1 : 0) as 0 | 1, remaining);
+      }
       return;
     }
 
@@ -1405,12 +1718,26 @@ export function useSimulatorActions(withStore: WithStore): {
           targetPlayer.hand.push(card);
           return;
         }
-        const evoCheck = canEvolvePokemon(card.card, benchSlot, store);
-        if (!evoCheck.ok) {
+        const isRareCandy = !!store.pendingRareCandy && store.pendingRareCandy.actorIdx === targetPlayerIdx;
+        const evoCheck = canEvolvePokemon(card.card, benchSlot, store, { rareCandy: isRareCandy });
+        if (!evoCheck.ok && !isRareCandy) {
+          const rcCheck = store.pendingRareCandy && store.pendingRareCandy.actorIdx === targetPlayerIdx
+            ? canEvolvePokemon(card.card, benchSlot, store, { rareCandy: true })
+            : null;
+          if (!rcCheck?.ok) {
+            targetPlayer.hand.push(card);
+            return;
+          }
+        } else if (!evoCheck.ok) {
           targetPlayer.hand.push(card);
           return;
         }
         evolvePokemon(store, benchSlot, card, targetPlayerIdx);
+        if (isRareCandy || (store.pendingRareCandy && store.pendingRareCandy.actorIdx === targetPlayerIdx)) {
+          const remaining = store.pendingRareCandy!.remainingEffects;
+          store.pendingRareCandy = null;
+          applyGenericEffects(store, targetPlayerIdx, (targetPlayerIdx === 0 ? 1 : 0) as 0 | 1, remaining);
+        }
         return;
       }
 
@@ -1509,6 +1836,11 @@ export function useSimulatorActions(withStore: WithStore): {
       cancelOpponentSwitch,
       confirmSelfSwitch,
       cancelSelfSwitch,
+      cancelRareCandy,
+      toggleEvolveFromDeckCard,
+      confirmEvolveFromDeck,
+      cancelEvolveFromDeck,
+      useStadiumAbility,
       dropToTrainerUse,
       retreat,
       endTurn,

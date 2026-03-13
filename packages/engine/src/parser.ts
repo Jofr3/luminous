@@ -286,6 +286,63 @@ export function parseEffectText(text: string | null): EffectAction[] {
     actions.push({ type: "switch_pokemon", player: "self" });
   }
 
+  // Rare Candy: "Stage 2 card ... skipping the Stage 1"
+  if (/stage 2.*skipping the stage 1/i.test(text)) {
+    actions.push({ type: "rare_candy" });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Evolve-from-deck trainer cards
+  // ---------------------------------------------------------------------------
+
+  // Boost Shake: "Search your deck for a card that evolves from 1 of your Pokémon and put it onto that Pokémon to evolve it. Then, shuffle your deck. You can use this card during your first turn or on a Pokémon that was put into play this turn. Your turn ends."
+  if (/search your deck for a card that evolves from.*your pok[eé]mon.*evolve it.*you can use this card during your first turn.*your turn ends/is.test(text)) {
+    actions.push({ type: "evolve_from_deck", count: 1, bypassFirstTurn: true, bypassSameTurn: true, endsTurn: true });
+  }
+  // Wally: "Search your deck for a card that evolves from 1 of your Pokémon (excluding Pokémon-EX)...You can use this card during your first turn or on a Pokémon that was put into play this turn."
+  else if (/search your deck for a card that evolves from.*excluding pok[eé]mon.?EX.*you can use this card during your first turn/is.test(text)) {
+    actions.push({ type: "evolve_from_deck", count: 1, bypassFirstTurn: true, bypassSameTurn: true, endsTurn: false, excludeSuffix: "EX" });
+  }
+  // Dusk Stone: "Search your deck for a Mismagius, Honchkrow, Chandelure, or Aegislash, including Pokémon-GX...You can use this card during your first turn"
+  else if (/search your deck for a (Mismagius|Honchkrow|Chandelure|Aegislash).*evolves from.*you can use this card during your first turn/is.test(text)) {
+    actions.push({ type: "evolve_from_deck", count: 1, bypassFirstTurn: true, bypassSameTurn: true, endsTurn: false, allowedNames: ["Mismagius", "Honchkrow", "Chandelure", "Aegislash"] });
+  }
+  // Salvatore: "Search your deck for a card that has no Abilities and evolves from 1 of your Pokémon...You can use this card on a Pokémon you put down when you were setting up to play or on a Pokémon that was put into play this turn."
+  else if (/search your deck for a card that has no Abilities and evolves from/i.test(text)) {
+    actions.push({ type: "evolve_from_deck", count: 1, bypassFirstTurn: false, bypassSameTurn: true, endsTurn: false, requireNoAbilities: true });
+  }
+  // Red & Blue: "Search your deck for a Pokémon-GX that evolves from 1 of your Pokémon...You can't use this card during your first turn"
+  else if (/search your deck for a pok[eé]mon.?GX that evolves from/i.test(text)) {
+    actions.push({ type: "evolve_from_deck", count: 1, bypassFirstTurn: false, bypassSameTurn: false, endsTurn: false, requireSuffix: "GX" });
+  }
+  // Pokémon Breeder's Nurturing: "Choose up to 2 of your Pokémon in play. For each of those Pokémon, search your deck for a card that evolves from that Pokémon...You can't use this card during your first turn"
+  else if (/choose up to 2.*search your deck for a card that evolves from that pok[eé]mon/is.test(text)) {
+    actions.push({ type: "evolve_from_deck", count: 2, bypassFirstTurn: false, bypassSameTurn: false, endsTurn: false });
+  }
+  // Evosoda (generic): "Search your deck for a card that evolves from 1 of your Pokémon and put it onto that Pokémon...You can't use this card during your first turn"
+  else if (/search your deck for a card that evolves from.*your pok[eé]mon.*evolve.*you can't use this card during your first turn/is.test(text)) {
+    actions.push({ type: "evolve_from_deck", count: 1, bypassFirstTurn: false, bypassSameTurn: false, endsTurn: false });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Stadium evolution effects
+  // ---------------------------------------------------------------------------
+
+  // Forest of Vitality: "Each player's {G} Pokémon can evolve into {G} Pokémon during the turn they play those Pokémon, except during their first turn."
+  if (/pok[eé]mon can evolve.*during the turn they play those pok[eé]mon.*except during their first turn/is.test(text)) {
+    actions.push({ type: "stadium_evolve_timing", bypassSameTurn: true, bypassFirstTurn: false, typeFilter: "Grass" });
+  }
+
+  // Grand Tree: "search their deck for a Stage 1 Pokémon that evolves from 1 of their Basic Pokémon...Stage 2 Pokémon that evolves from that Pokémon"
+  if (/search their deck for a Stage 1.*evolves from.*basic.*Stage 2.*evolves from that/is.test(text)) {
+    actions.push({ type: "stadium_chained_evolution" });
+  }
+
+  // Pokémon Research Lab: "search their deck for up to 2 Pokémon that evolve from Unidentified Fossil"
+  if (/search their deck for up to (\d+) pok[eé]mon that evolve from Unidentified Fossil/i.test(text)) {
+    actions.push({ type: "stadium_fossil_evolution", count: 2, endsTurn: true });
+  }
+
   // Shuffle and draw: "Shuffle your hand into your deck. Then, draw N cards"
   const shuffleDrawMatch = text.match(/shuffle your hand into your deck.*draw (\d+) cards?/i);
   if (shuffleDrawMatch) {
