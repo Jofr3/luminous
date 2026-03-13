@@ -10,6 +10,7 @@ function migrateStore(store: SimulatorStore): SimulatorStore {
   store.stadium ??= null;
   store.pendingHandSelection ??= null;
   store.pendingDeckSearch ??= null;
+  store.pendingDiscardSelection ??= null;
   store.pendingOpponentSwitch ??= null;
   store.pendingSelfSwitch ??= null;
   store.pendingRareCandy ??= null;
@@ -90,6 +91,7 @@ export function useSimulatorState(initial: () => SimulatorStore) {
         } else if (historyMode === "replace") {
           futureRef.current = [];
         }
+        storeRef.current = draft;
         setStore(draft);
       }
 
@@ -103,6 +105,7 @@ export function useSimulatorState(initial: () => SimulatorStore) {
     const prev = history[history.length - 1];
     historyRef.current = history.slice(0, -1);
     futureRef.current = [...futureRef.current, storeRef.current];
+    storeRef.current = prev;
     syncUidCounterFromStore(prev);
     setStore(prev);
   }, []);
@@ -113,6 +116,7 @@ export function useSimulatorState(initial: () => SimulatorStore) {
     const next = future[future.length - 1];
     futureRef.current = future.slice(0, -1);
     historyRef.current = [...historyRef.current, storeRef.current];
+    storeRef.current = next;
     syncUidCounterFromStore(next);
     setStore(next);
   }, []);
@@ -131,6 +135,7 @@ export function useSimulatorState(initial: () => SimulatorStore) {
       futureRef.current = [];
     }
 
+    storeRef.current = next;
     setStore(next);
   }, []);
 

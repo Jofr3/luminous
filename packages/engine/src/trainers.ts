@@ -111,12 +111,39 @@ export function canPlayTrainer(
     }
   }
 
+  // Cards that search deck and put Pokemon onto bench: bench must have space
+  const searchToBench = effects.find((e) => e.type === "search_deck" && e.destination === "bench");
+  if (searchToBench) {
+    if (playerBoard.bench.length >= 5) {
+      return { allowed: false, reason: "Your Bench is full." };
+    }
+  }
+
   // Cards that recover from discard pile: must have valid targets
-  if (data.effect && /from your discard pile into your hand/i.test(data.effect)) {
+  const recoverEffect = effects.find((e) => e.type === "recover_from_discard");
+  if (recoverEffect && recoverEffect.type === "recover_from_discard") {
     const discardPile = playerBoard.discard;
-    const hasPokemon = discardPile.some((c) => c.card.category === "Pokemon");
-    const hasBasicEnergy = discardPile.some((c) => c.card.category === "Energy" && c.card.energyType === "Normal");
-    if (!hasPokemon && !hasBasicEnergy) {
+    const candidates = recoverEffect.alternatives?.length
+      ? recoverEffect.alternatives
+      : [{ category: recoverEffect.category, filter: recoverEffect.filter }];
+    const hasMatch = discardPile.some((c) =>
+      candidates.some((candidate) => {
+        if (candidate.category === "Pokemon") return c.card.category === "Pokemon";
+        if (candidate.category === "Energy" && candidate.filter === "Basic Energy") {
+          return c.card.category === "Energy" && c.card.energyType === "Normal";
+        }
+        if (candidate.category === "Energy") return c.card.category === "Energy";
+        if (candidate.category === "Trainer" && candidate.filter === "Supporter") {
+          return c.card.category === "Trainer" && c.card.trainerType === "Supporter";
+        }
+        if (candidate.category === "Trainer" && candidate.filter === "Item") {
+          return c.card.category === "Trainer" && c.card.trainerType === "Item";
+        }
+        if (candidate.category === "Trainer") return c.card.category === "Trainer";
+        return true;
+      }),
+    );
+    if (!hasMatch) {
       return { allowed: false };
     }
   }

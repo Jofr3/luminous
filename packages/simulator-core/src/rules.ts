@@ -28,6 +28,7 @@ function hasBlockingPrompt(store: SimulatorStore): boolean {
   return Boolean(
     store.pendingHandSelection ||
       store.pendingDeckSearch ||
+      store.pendingDiscardSelection ||
       store.pendingOpponentSwitch ||
       store.pendingSelfSwitch ||
       store.pendingRareCandy ||
@@ -102,6 +103,18 @@ function getHandCardRules(store: SimulatorStore, playerIdx: PlayerIndex, uid: st
 
   if (card.card.category !== "Trainer") return rules;
 
+  // Check item_lock effect
+  if (card.card.trainer_type === "Item" || card.card.trainer_type === "Technical Machine") {
+    const itemLock = player.activeEffects.find((e) => e.type === "item_lock");
+    if (itemLock) {
+      const lockDeny = deny("Item cards are locked.");
+      rules.trainerUse = lockDeny;
+      rules.active = lockDeny;
+      rules.benchPokemon = Object.fromEntries(player.bench.map((pokemon) => [pokemon.uid, lockDeny]));
+      return rules;
+    }
+  }
+
   const engineState = buildEngineState(store);
   const enginePlayer = toEngineBoard(player);
   const engineCard = toEngineCardInstance(card);
@@ -165,6 +178,12 @@ export function evaluateSimulatorRules(store: SimulatorStore): SimulatorRules {
     if (store.turnNumber === 1 && store.currentTurn === store.firstPlayer) {
       return { index, name: attack.name, allowed: false, reason: "The first player cannot attack on turn 1." };
     }
+    const cantAttack = player.activeEffects.find(
+      (e) => e.type === "cant_attack" && (!e.targetPokemonUid || e.targetPokemonUid === player.active?.uid),
+    );
+    if (cantAttack) {
+      return { index, name: attack.name, allowed: false, reason: "This Pokemon can't attack this turn." };
+    }
     const validation = player.active
       ? validateAttack(toEnginePokemon(player.active), {
         name: attack.name ?? "Unknown",
@@ -217,6 +236,10 @@ export function evaluateSimulatorRules(store: SimulatorStore): SimulatorRules {
     }
     if (!player.active) return [pokemon.uid, deny("No Active Pokemon to retreat.")];
     if (player.retreatedThisTurn) return [pokemon.uid, deny("You already retreated this turn.")];
+    const cantRetreat = player.activeEffects.find(
+      (e) => e.type === "cant_retreat" && (!e.targetPokemonUid || e.targetPokemonUid === player.active?.uid),
+    );
+    if (cantRetreat) return [pokemon.uid, deny("This Pokemon can't retreat this turn.")];
     const enginePokemon = toEnginePokemon(player.active);
     const conditionCheck = canRetreatCondition(enginePokemon);
     if (!conditionCheck.allowed) return [pokemon.uid, deny(conditionCheck.reason ?? "Retreat is blocked.")];

@@ -244,7 +244,15 @@ export type EffectAction =
   | { type: "conditional_draw"; baseDraw: number; bonusDraw: number; condition: string }
   | { type: "move_energy"; count: number; from: "any" | "bench" | "active"; to: "any" | "active" }
   | { type: "scoop_up"; target: "basic" | "any"; keepAttached: boolean }
-  | { type: "recover_from_discard"; count: number; destination: "hand" | "deck"; category?: string; filter?: string }
+  | {
+    type: "recover_from_discard";
+    count: number;
+    minCount?: number;
+    destination: "hand" | "deck";
+    category?: string;
+    filter?: string;
+    alternatives?: Array<{ category?: string; filter?: string }>;
+  }
   | { type: "look_at_top"; count: number; takeCount: number; filter?: string; destination: "hand"; remainder: "shuffle_back" | "bottom" }
   | { type: "heal_all"; amount: number; target: "all_own" | "all_type"; typeFilter?: string }
   | { type: "heal_target"; amount: number | "all"; target: "active" | "any" }

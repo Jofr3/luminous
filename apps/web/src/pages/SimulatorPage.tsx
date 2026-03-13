@@ -28,6 +28,7 @@ function createInitialStore(): SimulatorStore {
     stadium: null,
     pendingHandSelection: null,
     pendingDeckSearch: null,
+    pendingDiscardSelection: null,
     pendingOpponentSwitch: null,
     pendingSelfSwitch: null,
     pendingRareCandy: null,

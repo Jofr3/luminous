@@ -190,6 +190,7 @@ function createEmptyPlayer(): PlayerBoard {
     energyAttachedThisTurn: false,
     supporterPlayedThisTurn: false,
     retreatedThisTurn: false,
+    activeEffects: [],
   };
 }
 
@@ -290,6 +291,7 @@ function isSimulatorAction(value: unknown): value is SimulatorAction {
     case "playTrainerCard":
     case "toggleHandSelectionCard":
     case "toggleDeckSearchCard":
+    case "toggleDiscardSelectionCard":
     case "toggleEvolveFromDeckCard":
       return typeof value.uid === "string";
     case "confirmOpponentSwitch":
@@ -299,6 +301,8 @@ function isSimulatorAction(value: unknown): value is SimulatorAction {
     case "confirmHandSelection":
     case "confirmDeckSearch":
     case "cancelDeckSearch":
+    case "confirmDiscardSelection":
+    case "cancelDiscardSelection":
     case "cancelOpponentSwitch":
     case "cancelSelfSwitch":
     case "cancelRareCandy":
@@ -389,6 +393,7 @@ simulatorRoute.post("/new-game", async (c) => {
     stadium: null,
     pendingHandSelection: null,
     pendingDeckSearch: null,
+    pendingDiscardSelection: null,
     pendingOpponentSwitch: null,
     pendingSelfSwitch: null,
     pendingRareCandy: null,

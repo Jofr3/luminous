@@ -445,16 +445,30 @@ export function parseEffectText(text: string | null): EffectAction[] {
   if (recoverHandMatch) {
     const countStr = recoverHandMatch[1];
     const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
+    const minCount = /up to/i.test(recoverHandMatch[0]) ? 0 : count;
     const description = recoverHandMatch[2].toLowerCase();
-    let category: string | undefined;
-    let filter: string | undefined;
-    if (/basic energy/i.test(description)) { category = "Energy"; filter = "Basic Energy"; }
-    else if (/energy/i.test(description)) { category = "Energy"; }
-    else if (/pok[eé]mon/i.test(description)) { category = "Pokemon"; }
-    else if (/supporter/i.test(description)) { category = "Trainer"; filter = "Supporter"; }
-    else if (/item/i.test(description)) { category = "Trainer"; filter = "Item"; }
-    else { filter = description; }
-    actions.push({ type: "recover_from_discard", count, destination: "hand", category, filter });
+    if (/pok[eé]mon\s+(?:or|and)\s+(?:a\s+)?basic energy/i.test(description) || /combination of pok[eé]mon\s+(?:and|or)\s+(?:a\s+)?basic energy/i.test(description)) {
+      actions.push({
+        type: "recover_from_discard",
+        count,
+        minCount,
+        destination: "hand",
+        alternatives: [
+          { category: "Pokemon" },
+          { category: "Energy", filter: "Basic Energy" },
+        ],
+      });
+    } else {
+      let category: string | undefined;
+      let filter: string | undefined;
+      if (/basic energy/i.test(description)) { category = "Energy"; filter = "Basic Energy"; }
+      else if (/energy/i.test(description)) { category = "Energy"; }
+      else if (/pok[eé]mon/i.test(description)) { category = "Pokemon"; }
+      else if (/supporter/i.test(description)) { category = "Trainer"; filter = "Supporter"; }
+      else if (/item/i.test(description)) { category = "Trainer"; filter = "Item"; }
+      else { filter = description; }
+      actions.push({ type: "recover_from_discard", count, minCount, destination: "hand", category, filter });
+    }
   }
 
   // Shuffle from discard into deck: "Shuffle up to N ... from your discard pile into your deck"
@@ -462,14 +476,30 @@ export function parseEffectText(text: string | null): EffectAction[] {
   if (recoverDeckMatch) {
     const countStr = recoverDeckMatch[1];
     const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
+    const minCount = /up to/i.test(recoverDeckMatch[0]) ? 0 : count;
     const description = recoverDeckMatch[2].toLowerCase();
-    let category: string | undefined;
-    let filter: string | undefined;
-    if (/basic energy/i.test(description)) { category = "Energy"; filter = "Basic Energy"; }
-    else if (/energy/i.test(description)) { category = "Energy"; }
-    else if (/pok[eé]mon/i.test(description)) { category = "Pokemon"; }
-    else { filter = description; }
-    actions.push({ type: "recover_from_discard", count, destination: "deck", category, filter });
+    if (/pok[eé]mon\s+(?:or|and)\s+(?:a\s+)?basic energy/i.test(description) || /combination of pok[eé]mon\s+(?:and|or)\s+(?:a\s+)?basic energy/i.test(description)) {
+      actions.push({
+        type: "recover_from_discard",
+        count,
+        minCount,
+        destination: "deck",
+        alternatives: [
+          { category: "Pokemon" },
+          { category: "Energy", filter: "Basic Energy" },
+        ],
+      });
+    } else {
+      let category: string | undefined;
+      let filter: string | undefined;
+      if (/basic energy/i.test(description)) { category = "Energy"; filter = "Basic Energy"; }
+      else if (/energy/i.test(description)) { category = "Energy"; }
+      else if (/pok[eé]mon/i.test(description)) { category = "Pokemon"; }
+      else if (/supporter/i.test(description)) { category = "Trainer"; filter = "Supporter"; }
+      else if (/item/i.test(description)) { category = "Trainer"; filter = "Item"; }
+      else { filter = description; }
+      actions.push({ type: "recover_from_discard", count, minCount, destination: "deck", category, filter });
+    }
   }
 
   // Look at top N cards: "Look at the top N cards of your deck"

@@ -38,6 +38,12 @@ function cloneStore<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** Remove active effects tied to a specific Pokemon (e.g., when it leaves the Active Spot or evolves). */
+function clearPokemonEffects(store: SimulatorStore, playerIdx: PlayerIndex, pokemonUid: string): void {
+  const player = store.players[playerIdx];
+  player.activeEffects = player.activeEffects.filter((e) => e.targetPokemonUid !== pokemonUid);
+}
+
 function evolvePokemon(
   store: SimulatorStore,
   pokemon: PokemonInPlay,
@@ -45,6 +51,7 @@ function evolvePokemon(
   playerIdx: PlayerIndex,
 ): void {
   const oldName = pokemon.base.card.name;
+  clearPokemonEffects(store, playerIdx, pokemon.uid);
   pokemon.attached.push(pokemon.base);
   pokemon.base = evoCard;
   pokemon.turnPlayedOrEvolved = store.turnNumber;
@@ -169,6 +176,18 @@ function finishTurn(store: SimulatorStore): void {
   if (nextPlayer.active) nextPlayer.active.usedAbilityThisTurn = false;
   for (const pokemon of nextPlayer.bench) pokemon.usedAbilityThisTurn = false;
 
+  // Expire active effects for the player whose turn just ended
+  const prev = (next === 0 ? 1 : 0) as PlayerIndex;
+  const prevPlayer = store.players[prev];
+  prevPlayer.activeEffects = prevPlayer.activeEffects.filter((effect) => {
+    effect.turnsRemaining -= 1;
+    if (effect.turnsRemaining <= 0) {
+      appendLog(store, `${effect.type.replace(/_/g, " ")} effect expired.`);
+      return false;
+    }
+    return true;
+  });
+
   appendLog(store, `P${next + 1} turn.`);
   const drawn = drawFromDeck(nextPlayer, 1);
   if (drawn.length === 0) {
@@ -292,6 +311,66 @@ function queueHandSelectionPrompt(
     remainingEffects,
   };
   appendLog(store, `P${playerIdx + 1} must choose ${effect.count} card(s) to discard.`);
+  return true;
+}
+
+function matchesRecoverFromDiscardTarget(card: CardInstance, effect: Extract<EffectAction, { type: "recover_from_discard" }>): boolean {
+  const candidates = effect.alternatives?.length
+    ? effect.alternatives
+    : [{ category: effect.category, filter: effect.filter }];
+
+  return candidates.some((candidate) => {
+    if (candidate.category === "Pokemon") return card.card.category === "Pokemon";
+    if (candidate.category === "Energy" && candidate.filter === "Basic Energy") {
+      return card.card.category === "Energy" && card.card.energy_type === "Normal";
+    }
+    if (candidate.category === "Energy") return card.card.category === "Energy";
+    if (candidate.category === "Trainer" && candidate.filter === "Supporter") {
+      return card.card.category === "Trainer" && card.card.trainer_type === "Supporter";
+    }
+    if (candidate.category === "Trainer" && candidate.filter === "Item") {
+      return card.card.category === "Trainer" && card.card.trainer_type === "Item";
+    }
+    if (candidate.category === "Trainer") return card.card.category === "Trainer";
+    if (candidate.filter) return card.card.name.toLowerCase().includes(candidate.filter.toLowerCase());
+    return true;
+  });
+}
+
+function queueDiscardSelectionPrompt(
+  store: SimulatorStore,
+  actorIdx: PlayerIndex,
+  opponentIdx: PlayerIndex,
+  playerIdx: PlayerIndex,
+  effect: Extract<EffectAction, { type: "recover_from_discard" }>,
+  remainingEffects: EffectAction[],
+): boolean {
+  const player = store.players[playerIdx];
+  const candidates = player.discard.filter((card) => matchesRecoverFromDiscardTarget(card, effect));
+  if (candidates.length === 0) {
+    appendLog(store, `P${playerIdx + 1} has no valid cards in the discard pile.`);
+    return true;
+  }
+
+  const maxCount = Math.min(effect.count, candidates.length);
+  const label = effect.alternatives?.length
+    ? "Pokemon or Basic Energy card(s)"
+    : (effect.filter ?? effect.category ?? "card(s)");
+
+  store.pendingDiscardSelection = {
+    actorIdx,
+    opponentIdx,
+    playerIdx,
+    count: maxCount,
+    minCount: effect.minCount ?? Math.min(1, maxCount),
+    destination: effect.destination,
+    candidateUids: candidates.map((card) => card.uid),
+    selectedUids: [],
+    title: "Recover from Discard",
+    instruction: `Choose up to ${maxCount} ${label} from your discard pile.`,
+    remainingEffects,
+  };
+  appendLog(store, `P${playerIdx + 1} is choosing card(s) from the discard pile.`);
   return true;
 }
 
@@ -514,16 +593,31 @@ function applyGenericEffects(
         break;
       }
       case "cant_attack":
+        actor.activeEffects.push({
+          type: "cant_attack",
+          turnsRemaining: effect.turns,
+          targetPokemonUid: actor.active?.uid,
+        });
         appendLog(store, "This Pokemon can't attack during its next turn.");
         break;
       case "cant_retreat":
+        opponent.activeEffects.push({
+          type: "cant_retreat",
+          turnsRemaining: effect.turns,
+          targetPokemonUid: opponent.active?.uid,
+        });
         appendLog(store, "The Defending Pokemon can't retreat during the next turn.");
         break;
       case "ignore_resistance":
         appendLog(store, "This attack's damage isn't affected by Resistance.");
         break;
       case "prevent_damage":
-        appendLog(store, "Damage prevention effect noted (not fully tracked in simulator).");
+        actor.activeEffects.push({
+          type: "prevent_damage",
+          turnsRemaining: effect.turns,
+          targetPokemonUid: actor.active?.uid,
+        });
+        appendLog(store, `Prevent all damage done to this Pokemon during the opponent's next turn.`);
         break;
       case "damage_per_energy": {
         const target = opponent.active;
@@ -656,10 +750,17 @@ function applyGenericEffects(
         break;
       }
       case "damage_reduction":
-        appendLog(store, `Damage reduction of ${effect.amount} noted for ${effect.turns} turn(s).`);
+        actor.activeEffects.push({
+          type: "damage_reduction",
+          turnsRemaining: effect.turns,
+          amount: effect.amount,
+          targetPokemonUid: actor.active?.uid,
+        });
+        appendLog(store, `This Pokemon takes ${effect.amount} less damage during the opponent's next turn.`);
         break;
       case "item_lock":
-        appendLog(store, `Item lock effect noted for ${effect.turns} turn(s).`);
+        opponent.activeEffects.push({ type: "item_lock", turnsRemaining: effect.turns });
+        appendLog(store, `P${opponentIdx + 1} can't play Item cards during their next turn.`);
         break;
       case "copy_attack":
         appendLog(store, "Copy attack effect (not fully implemented in simulator).");
@@ -895,6 +996,11 @@ function applyGenericEffects(
         const flip = Math.random() < 0.5 ? "Heads" : "Tails";
         appendLog(store, `Coin flip: ${flip}.`);
         if (flip === "Tails") {
+          actor.activeEffects.push({
+            type: "cant_attack",
+            turnsRemaining: 1,
+            targetPokemonUid: actor.active?.uid,
+          });
           appendLog(store, "This Pokemon can't attack during its next turn (Tails).");
         }
         break;
@@ -977,10 +1083,7 @@ function applyGenericEffects(
         break;
       }
       case "recover_from_discard": {
-        // Needs selection UI — log as manual
-        const dest = effect.destination === "hand" ? "hand" : "deck";
-        const what = effect.filter ?? effect.category ?? "cards";
-        appendLog(store, `Manual effect: Put up to ${effect.count} ${what} from discard pile into ${dest}.`);
+        if (queueDiscardSelectionPrompt(store, actorIdx, opponentIdx, actorIdx, effect, remainingEffects)) return;
         break;
       }
       case "look_at_top": {
@@ -1128,6 +1231,16 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
       const defenderIdx = (store.currentTurn === 0 ? 1 : 0) as PlayerIndex;
       const defender = store.players[defenderIdx];
       if (!attacker.active || !defender.active) return;
+
+      // Check cant_attack effect on attacker's active Pokemon
+      const cantAttack = attacker.activeEffects.find(
+        (e) => e.type === "cant_attack" && (!e.targetPokemonUid || e.targetPokemonUid === attacker.active?.uid),
+      );
+      if (cantAttack) {
+        appendLog(store, `${attacker.active.base.card.name} can't attack this turn.`);
+        return;
+      }
+
       const frontendAttack = attacker.active.base.card.attacks?.[action.attackIdx];
       if (!frontendAttack) return;
       const damage = parseDamage(frontendAttack.damage);
@@ -1151,6 +1264,28 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
         defenderBoard: toEngineBoard(defender),
         state: buildEngineState(store) as EngineGameState,
       });
+
+      // Apply prevent_damage / damage_reduction effects on defender
+      const damageDealt = engineDefender.damage - defender.active.damage;
+      if (damageDealt > 0) {
+        const preventEffect = defender.activeEffects.find(
+          (e) => e.type === "prevent_damage" && (!e.targetPokemonUid || e.targetPokemonUid === defender.active?.uid),
+        );
+        if (preventEffect) {
+          engineDefender.damage = defender.active.damage;
+          appendLog(store, `Damage prevented by active effect on ${defender.active.base.card.name}.`);
+        } else {
+          const reductionEffect = defender.activeEffects.find(
+            (e) => e.type === "damage_reduction" && (!e.targetPokemonUid || e.targetPokemonUid === defender.active?.uid),
+          );
+          if (reductionEffect && reductionEffect.amount) {
+            const reduced = Math.max(0, damageDealt - reductionEffect.amount);
+            engineDefender.damage = defender.active.damage + reduced;
+            appendLog(store, `Damage reduced by ${reductionEffect.amount} (active effect).`);
+          }
+        }
+      }
+
       for (const log of result.logs) appendLog(store, log);
       syncFromEnginePokemon(attacker.active, engineAttacker);
       if (defender.active) syncFromEnginePokemon(defender.active, engineDefender);
@@ -1192,6 +1327,15 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
       const player = store.players[store.currentTurn];
       const cardInHand = player.hand.find((card) => card.uid === action.uid);
       if (!cardInHand || cardInHand.card.category !== "Trainer") return;
+
+      // Enforce item_lock
+      if (cardInHand.card.trainer_type === "Item" || cardInHand.card.trainer_type === "Technical Machine") {
+        if (player.activeEffects.some((e) => e.type === "item_lock")) {
+          appendLog(store, "Item cards are locked this turn.");
+          return;
+        }
+      }
+
       const engineCard = toEngineCardInstance(cardInHand);
       const canPlay = canPlayTrainer(engineCard, toEngineBoard(player), buildEngineState(store), store.currentTurn);
       if (!canPlay.allowed) {
@@ -1246,6 +1390,15 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
       pending.selectedUids = [...selected];
       return;
     }
+    case "toggleDiscardSelectionCard": {
+      const pending = store.pendingDiscardSelection;
+      if (!pending || !pending.candidateUids.includes(action.uid)) return;
+      const selected = new Set(pending.selectedUids);
+      if (selected.has(action.uid)) selected.delete(action.uid);
+      else if (selected.size < pending.count) selected.add(action.uid);
+      pending.selectedUids = [...selected];
+      return;
+    }
     case "confirmHandSelection": {
       const pending = store.pendingHandSelection;
       if (!pending || pending.selectedUids.length < pending.minCount) return;
@@ -1262,6 +1415,31 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
       const actorIdx = pending.actorIdx;
       const opponentIdx = pending.opponentIdx;
       store.pendingHandSelection = null;
+      applyGenericEffects(store, actorIdx, opponentIdx, remainingEffects);
+      return;
+    }
+    case "confirmDiscardSelection": {
+      const pending = store.pendingDiscardSelection;
+      if (!pending || pending.selectedUids.length < pending.minCount) return;
+      const player = store.players[pending.playerIdx];
+      const selectedCards: CardInstance[] = [];
+      for (const uid of pending.selectedUids) {
+        const idx = player.discard.findIndex((card) => card.uid === uid);
+        if (idx === -1) continue;
+        const [card] = player.discard.splice(idx, 1);
+        if (card) selectedCards.push(card);
+      }
+      if (pending.destination === "hand") {
+        player.hand.push(...selectedCards);
+        appendLog(store, `P${pending.playerIdx + 1} took ${selectedCards.length} card(s) from the discard pile into hand.`);
+      } else {
+        player.deck = shuffle([...player.deck, ...selectedCards]);
+        appendLog(store, `P${pending.playerIdx + 1} shuffled ${selectedCards.length} card(s) from the discard pile into the deck.`);
+      }
+      const remainingEffects = pending.remainingEffects;
+      const actorIdx = pending.actorIdx;
+      const opponentIdx = pending.opponentIdx;
+      store.pendingDiscardSelection = null;
       applyGenericEffects(store, actorIdx, opponentIdx, remainingEffects);
       return;
     }
@@ -1303,6 +1481,11 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
       store.pendingDeckSearch = null;
       return;
     }
+    case "cancelDiscardSelection":
+      if (!store.pendingDiscardSelection) return;
+      store.pendingDiscardSelection = null;
+      appendLog(store, "Discard recovery cancelled.");
+      return;
     case "confirmOpponentSwitch": {
       const pending = store.pendingOpponentSwitch;
       if (!pending) return;
@@ -1555,6 +1738,13 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
       if (!canAct(store, store.currentTurn, "retreat")) return;
       const player = store.players[store.currentTurn];
       if (!player.active || player.retreatedThisTurn) return;
+      const cantRetreat = player.activeEffects.find(
+        (e) => e.type === "cant_retreat" && (!e.targetPokemonUid || e.targetPokemonUid === player.active?.uid),
+      );
+      if (cantRetreat) {
+        appendLog(store, `${player.active.base.card.name} can't retreat this turn.`);
+        return;
+      }
       const engineActive = toEnginePokemon(player.active);
       const conditionCheck = canRetreatCondition(engineActive);
       if (!conditionCheck.allowed) return;
@@ -1573,6 +1763,7 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
       const benchPokemon = removeBenchPokemon(player, action.benchUid);
       if (!benchPokemon) return;
       const oldActive = player.active;
+      clearPokemonEffects(store, store.currentTurn, oldActive.uid);
       oldActive.specialConditions = [];
       oldActive.poisonDamage = 10;
       oldActive.burnDamage = 20;

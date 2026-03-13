@@ -165,6 +165,7 @@ export function createEmptyPlayer(): PlayerBoard {
     energyAttachedThisTurn: false,
     supporterPlayedThisTurn: false,
     retreatedThisTurn: false,
+    activeEffects: [],
   };
 }
 

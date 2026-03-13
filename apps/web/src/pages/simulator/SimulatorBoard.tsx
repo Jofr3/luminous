@@ -139,6 +139,7 @@ export function SimulatorBoard({ store, rules, actions, undo, redo, canUndo, can
   const active = currentPlayer.active;
   const pendingHandSelection = store.pendingHandSelection;
   const pendingDeckSearch = store.pendingDeckSearch;
+  const pendingDiscardSelection = store.pendingDiscardSelection;
   const pendingHandCards = pendingHandSelection
     ? store.players[pendingHandSelection.playerIdx].hand.filter((card) =>
       pendingHandSelection.candidateUids.includes(card.uid))
@@ -146,6 +147,10 @@ export function SimulatorBoard({ store, rules, actions, undo, redo, canUndo, can
   const pendingCards = pendingDeckSearch
     ? store.players[pendingDeckSearch.playerIdx].deck.filter((card) =>
       pendingDeckSearch.candidateUids.includes(card.uid))
+    : [];
+  const pendingDiscardCards = pendingDiscardSelection
+    ? store.players[pendingDiscardSelection.playerIdx].discard.filter((card) =>
+      pendingDiscardSelection.candidateUids.includes(card.uid))
     : [];
   const pendingEvolveFromDeck = store.pendingEvolveFromDeck;
   const pendingEvolveDeckCards = pendingEvolveFromDeck
@@ -254,7 +259,7 @@ export function SimulatorBoard({ store, rules, actions, undo, redo, canUndo, can
               </div>
               <button
                 className={`btn end-turn ${store.phase === "setup" && !currentPlayer.active ? "needs-active" : ""}`}
-                disabled={store.phase === "idle" || !rules?.endTurn.allowed || !!store.pendingHandSelection || !!store.pendingDeckSearch || !!store.pendingOpponentSwitch || !!store.pendingSelfSwitch || !!store.pendingRareCandy || !!store.pendingEvolveFromDeck}
+                disabled={store.phase === "idle" || !rules?.endTurn.allowed || !!store.pendingHandSelection || !!store.pendingDeckSearch || !!store.pendingDiscardSelection || !!store.pendingOpponentSwitch || !!store.pendingSelfSwitch || !!store.pendingRareCandy || !!store.pendingEvolveFromDeck}
                 onClick={actions.endTurn}
                 title={rules?.endTurn.reason ?? "End Turn"}
               >
@@ -500,6 +505,52 @@ export function SimulatorBoard({ store, rules, actions, undo, redo, canUndo, can
                   className="btn"
                   disabled={pendingDeckSearch.selectedUids.length < pendingDeckSearch.minCount}
                   onClick={() => void actions.confirmDeckSearch()}
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {pendingDiscardSelection && (
+          <div className="deck-search-modal" role="dialog" aria-modal="true" aria-label={pendingDiscardSelection.title}>
+            <div className="deck-search-modal__panel">
+              <div className="deck-search-modal__header">
+                <div>
+                  <h2>{pendingDiscardSelection.title}</h2>
+                  <p>{pendingDiscardSelection.instruction}</p>
+                </div>
+                <span className="deck-search-modal__count">
+                  {pendingDiscardSelection.selectedUids.length} / {pendingDiscardSelection.count}
+                </span>
+              </div>
+              <div className="deck-search-modal__grid">
+                {pendingDiscardCards.map((card) => {
+                  const selected = pendingDiscardSelection.selectedUids.includes(card.uid);
+                  const disabled = !selected && pendingDiscardSelection.selectedUids.length >= pendingDiscardSelection.count;
+                  return (
+                    <button
+                      key={card.uid}
+                      type="button"
+                      className={`deck-search-card ${selected ? "selected" : ""}`}
+                      disabled={disabled}
+                      onClick={() => void actions.toggleDiscardSelectionCard(card.uid)}
+                    >
+                      <img src={imageUrl(card.card.image) ?? ""} alt={card.card.name} />
+                      <span className="deck-search-card__name">{card.card.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="deck-search-modal__actions">
+                <button type="button" className="btn" onClick={() => void actions.cancelDiscardSelection()}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={pendingDiscardSelection.selectedUids.length < pendingDiscardSelection.minCount}
+                  onClick={() => void actions.confirmDiscardSelection()}
                 >
                   Confirm
                 </button>

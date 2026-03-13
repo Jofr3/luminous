@@ -95,6 +95,20 @@ export interface PendingHandSelection {
   remainingEffects: EffectAction[];
 }
 
+export interface PendingDiscardSelection {
+  actorIdx: PlayerIndex;
+  opponentIdx: PlayerIndex;
+  playerIdx: PlayerIndex;
+  count: number;
+  minCount: number;
+  destination: "hand" | "deck";
+  candidateUids: string[];
+  selectedUids: string[];
+  title: string;
+  instruction: string;
+  remainingEffects: EffectAction[];
+}
+
 export interface PendingOpponentSwitch {
   actorIdx: PlayerIndex;
   opponentIdx: PlayerIndex;
@@ -131,6 +145,13 @@ export interface PendingEvolveFromDeck {
   remainingEffects: EffectAction[];
 }
 
+export interface ActiveEffect {
+  type: "item_lock" | "cant_attack" | "cant_retreat" | "prevent_damage" | "damage_reduction";
+  turnsRemaining: number;
+  amount?: number;
+  targetPokemonUid?: string;
+}
+
 export interface PlayerBoard {
   deck: CardInstance[];
   hand: CardInstance[];
@@ -144,6 +165,7 @@ export interface PlayerBoard {
   energyAttachedThisTurn: boolean;
   supporterPlayedThisTurn: boolean;
   retreatedThisTurn: boolean;
+  activeEffects: ActiveEffect[];
 }
 
 export interface SimulatorStore {
@@ -166,6 +188,7 @@ export interface SimulatorStore {
   stadium: StadiumInPlay | null;
   pendingHandSelection: PendingHandSelection | null;
   pendingDeckSearch: PendingDeckSearch | null;
+  pendingDiscardSelection: PendingDiscardSelection | null;
   pendingOpponentSwitch: PendingOpponentSwitch | null;
   pendingSelfSwitch: PendingSelfSwitch | null;
   pendingRareCandy: PendingRareCandy | null;
@@ -233,6 +256,9 @@ export type SimulatorAction =
   | { type: "toggleDeckSearchCard"; uid: string }
   | { type: "confirmDeckSearch" }
   | { type: "cancelDeckSearch" }
+  | { type: "toggleDiscardSelectionCard"; uid: string }
+  | { type: "confirmDiscardSelection" }
+  | { type: "cancelDiscardSelection" }
   | { type: "confirmOpponentSwitch"; benchUid: string }
   | { type: "cancelOpponentSwitch" }
   | { type: "confirmSelfSwitch"; benchUid: string }

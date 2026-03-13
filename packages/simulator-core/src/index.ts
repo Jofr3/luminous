@@ -1,5 +1,6 @@
 export type {
   AbilityRule,
+  ActiveEffect,
   AttackRule,
   CardAbility,
   CardAttack,
@@ -7,6 +8,7 @@ export type {
   CardSummary,
   DragPayload,
   HandCardRules,
+  PendingDiscardSelection,
   PendingDeckSearch,
   PendingEvolveFromDeck,
   PendingHandSelection,
