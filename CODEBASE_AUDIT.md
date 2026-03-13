@@ -1,73 +1,106 @@
 # Codebase Audit
 
-## Project Map
-- Monorepo: Bun workspaces + Turbo at the root (`package.json`, `turbo.json`, `bun.lock`).
-- Frontend: `apps/web` uses React 19, React Router 7, Vite 5, TypeScript.
-- Backend: `apps/backend` uses Cloudflare Workers, Hono, D1, and R2 via Wrangler 4.
-- Shared domain logic: `packages/engine` contains Pokemon TCG rules/helpers consumed by the web app.
-- Docs/data: `knowledge/` contains gameplay references; `resources/` and `apps/backend/data/` contain source material and seed data.
-
 ## Executive Summary
-This repo is structurally sound: strict TypeScript is enabled, the monorepo boundaries are clear, and the shared engine package is a sensible split. The main quality issues were in operational reliability rather than catastrophic security defects: root scripts were not runnable from the workspace, simulator startup and undo behavior had correctness problems, and the web build emitted CSS nesting warnings. I fixed the high-signal issues that were safe to change without altering public APIs or trampling existing user edits. The main remaining risks are deployment readiness in Wrangler config, `cards.ts` type/performance debt on the backend hot path, and simulator actions that still log manual effect text instead of resolving effects.
+
+This repository is a Bun/Turbo monorepo with three substantive parts: a Cloudflare Worker API in `apps/backend`, a React/Vite frontend in `apps/web`, and a shared TCG rules engine in `packages/engine`. The backend is small and readable, but deck access is currently unauthenticated and the cards route leans heavily on untyped row handling. The most meaningful correctness risks were in the simulator and engine, where effect parsing and attack resolution could produce incorrect game outcomes. I fixed the clearest low-risk defects, added a safe env template, and verified the workspace with `bun run typecheck`.
+
+## Project Map
+
+- Root workspace: Bun workspaces + Turbo in [`package.json`](/home/jofre/projects/luminous/package.json) and [`turbo.json`](/home/jofre/projects/luminous/turbo.json).
+- Backend app: Hono + Wrangler Cloudflare Worker in [`apps/backend/src/index.ts`](/home/jofre/projects/luminous/apps/backend/src/index.ts).
+- Frontend app: React 19 + React Router 7 + Vite in [`apps/web/src/main.tsx`](/home/jofre/projects/luminous/apps/web/src/main.tsx) and [`apps/web/src/App.tsx`](/home/jofre/projects/luminous/apps/web/src/App.tsx).
+- Shared engine: parsing, damage, attack, energy, condition, trainer, and ability logic in [`packages/engine/src/index.ts`](/home/jofre/projects/luminous/packages/engine/src/index.ts).
+- Data/modeling: D1 migrations in [`apps/backend/migrations`](/home/jofre/projects/luminous/apps/backend/migrations), seed data/scripts in [`apps/backend/data`](/home/jofre/projects/luminous/apps/backend/data) and [`apps/backend/scripts`](/home/jofre/projects/luminous/apps/backend/scripts).
+- Documentation: root [`README.md`](/home/jofre/projects/luminous/README.md) is effectively empty; domain docs live under [`knowledge/README.md`](/home/jofre/projects/luminous/knowledge/README.md).
 
 ## Findings
 
-### Fixed
-- [MEDIUM] Dependencies & Configuration — `apps/backend/package.json:5`, `apps/web/package.json:6`, `packages/engine/package.json:8` — workspace scripts depended on bare `wrangler`, `vite`, and `tsc` binaries and failed from the root.
-- [HIGH] Correctness & Bugs — `apps/web/src/pages/SimulatorPage.tsx:36` — simulator bootstrap could reject without a catch path, causing noisy startup failures and skipped auto-setup.
-- [MEDIUM] Correctness & Bugs — `apps/web/src/pages/BrowsePage.tsx:87` — metadata loading used all-or-nothing `Promise.all`, so one endpoint failure blanked all browse metadata.
-- [MEDIUM] Correctness & Bugs — `apps/web/src/pages/simulator/useSimulatorState.ts:68` — undo history recorded no-op actions, polluting time travel and wasting memory.
-- [MEDIUM] Correctness & Bugs — `apps/backend/src/routes/cards.ts:244` — card pagination sorted by non-unique `name` only, which can duplicate or skip rows across pages.
-- [MEDIUM] Type Safety — `apps/web/src/lib/api.ts:41` — API client accepted shallow payloads with weak runtime validation.
-- [LOW] Readability & Maintainability — `apps/web/src/styles/browse.css:1`, `apps/web/src/styles/filters.css:1` — Sass-style nesting emitted production build warnings under native CSS nesting rules.
-- [LOW] Readability & Maintainability — `apps/web/src/components/filter-sidebar.tsx:148`, `apps/web/src/components/filter-sidebar-sections.tsx:112` — UI buttons relied on implicit button type behavior.
+### Security
 
-### Remaining
-- [HIGH] Dependencies & Configuration — `apps/backend/wrangler.jsonc:11` — `database_id` is still the placeholder `REPLACE_WITH_YOUR_DATABASE_ID`, so real deploys are not production-ready.
-- [MEDIUM] Type Safety — `apps/backend/src/routes/cards.ts:42`, `apps/backend/src/routes/cards.ts:56`, `apps/backend/src/routes/cards.ts:251`, `apps/backend/src/routes/cards.ts:261` — `any`-heavy row assembly and `SELECT *` usage keep the hottest API route brittle and overfetch more than needed.
-- [MEDIUM] Correctness & Bugs — `apps/web/src/pages/simulator/useSimulatorActions.ts:475` — abilities only log their effect text and mark usage; they do not execute engine-level effects.
-- [MEDIUM] Correctness & Bugs — `apps/web/src/pages/simulator/useSimulatorActions.ts:502` — trainer card effects are still manual/log-only for most cards, so simulator state can drift from card text.
-- [LOW] Readability & Maintainability — `README.md:1` — the root README is effectively empty, which raises onboarding and ops cost.
+- [HIGH] Security — [`apps/backend/src/routes/decks.ts#L6`](/home/jofre/projects/luminous/apps/backend/src/routes/decks.ts#L6) — Deck list and deck detail endpoints are exposed without any auth, ownership, or tenant separation.
+- [LOW] Security — [`.env:1`](/home/jofre/projects/luminous/.env:1) — A live API key exists in the local env file; `.gitignore` excludes it, so this is an operational hygiene issue rather than a tracked-repo leak.
+
+### Correctness & Bugs
+
+- [HIGH] Bug — [`packages/engine/src/parser.ts#L188`](/home/jofre/projects/luminous/packages/engine/src/parser.ts#L188) — Coin-flip special-condition parsing used the wrong regex capture group, producing invalid condition values.
+- [HIGH] Bug — [`packages/engine/src/attacks.ts#L96`](/home/jofre/projects/luminous/packages/engine/src/attacks.ts#L96) — Multi-coin attacks applied raw damage directly, bypassing weakness, resistance, and other normal damage calculation steps.
+- [MEDIUM] Bug — [`packages/engine/src/abilities.ts#L30`](/home/jofre/projects/luminous/packages/engine/src/abilities.ts#L30) — Every ability was treated as once-per-turn, incorrectly blocking passive or repeatable abilities.
+- [MEDIUM] Bug — [`apps/web/src/pages/simulator/useSimulatorActions.ts#L1139`](/home/jofre/projects/luminous/apps/web/src/pages/simulator/useSimulatorActions.ts#L1139) — Dragging a stadium card onto the stadium slot bypassed the normal legality checks used by the button flow.
+
+### Performance & Optimization
+
+- [MEDIUM] Perf — [`apps/web/src/pages/simulator/useSimulatorState.ts#L76`](/home/jofre/projects/luminous/apps/web/src/pages/simulator/useSimulatorState.ts#L76) — Every simulator action deep-compares entire state via `JSON.stringify`, which will get expensive as logs and board state grow.
+- [MEDIUM] Perf — [`apps/backend/src/routes/cards.ts#L155`](/home/jofre/projects/luminous/apps/backend/src/routes/cards.ts#L155) — Name search uses `%query%`, which prevents normal index use and will degrade as the card table grows.
+- [LOW] Perf — [`apps/backend/src/routes/cards.ts#L97`](/home/jofre/projects/luminous/apps/backend/src/routes/cards.ts#L97) — The filters endpoint runs many `DISTINCT` scans per request; response caching mitigates it, but it is still query-heavy.
+
+### Code Organization & Architecture
+
+- [MEDIUM] Org — [`apps/web/src/pages/simulator/useSimulatorActions.ts#L1`](/home/jofre/projects/luminous/apps/web/src/pages/simulator/useSimulatorActions.ts#L1) — The simulator action module is a large multi-responsibility file with setup, combat, trainer, retreat, and drag/drop logic collapsed together.
+- [MEDIUM] Org — [`apps/backend/src/routes/cards.ts#L1`](/home/jofre/projects/luminous/apps/backend/src/routes/cards.ts#L1) — Query parsing, SQL assembly, row shaping, and response formatting all live in one route file, making it hard to test or evolve independently.
+
+### Fragmentation & Duplication
+
+- [LOW] Dup — [`apps/web/src/pages/simulator/useSimulatorActions.ts#L817`](/home/jofre/projects/luminous/apps/web/src/pages/simulator/useSimulatorActions.ts#L817) — Retreat logic is duplicated between the explicit `retreat` action and bench-to-active drag/drop behavior.
+- [LOW] Dup — [`apps/web/src/pages/simulator/useSimulatorActions.ts#L765`](/home/jofre/projects/luminous/apps/web/src/pages/simulator/useSimulatorActions.ts#L765) — Trainer play behavior is split between `playTrainerCard` and `dropToStadium`, which is how the stadium legality bug slipped in.
+
+### Readability & Maintainability
+
+- [LOW] Maintainability — [`README.md#L1`](/home/jofre/projects/luminous/README.md#L1) — The root README does not describe setup, app boundaries, or local development flow.
+- [LOW] Maintainability — [`apps/backend/src/routes/cards.ts#L42`](/home/jofre/projects/luminous/apps/backend/src/routes/cards.ts#L42) — Several helpers rely on `any`, which hides row-shape mistakes and makes future refactors riskier.
+
+### Type Safety
+
+- [MEDIUM] Type Safety — [`apps/backend/src/routes/cards.ts#L42`](/home/jofre/projects/luminous/apps/backend/src/routes/cards.ts#L42) — Untyped DB rows and `any[]` collections are used throughout the cards route.
+- [LOW] Type Safety — [`apps/backend/src/routes/cards.ts#L251`](/home/jofre/projects/luminous/apps/backend/src/routes/cards.ts#L251) — Result mapping still uses `any` for row IDs and grouped relation payloads instead of explicit row interfaces.
 
 ## Prioritized Action Plan
+
 ```text
-[HIGH] Config — apps/backend/wrangler.jsonc:11 — Replace the placeholder D1 database_id before any real deployment.
-[MEDIUM] Bug — apps/web/src/pages/simulator/useSimulatorActions.ts:475 — Route ability usage through engine effect resolution instead of log-only behavior.
-[MEDIUM] Bug — apps/web/src/pages/simulator/useSimulatorActions.ts:502 — Implement trainer effect execution or explicitly gate unsupported cards in the simulator UI.
-[MEDIUM] Type Safety — apps/backend/src/routes/cards.ts:42 — Replace `any` row handling with typed row shapes and explicit child-table selects.
-[LOW] Docs — README.md:1 — Add setup, dev, build, and deployment instructions at the repo root.
+[HIGH] Security — apps/backend/src/routes/decks.ts:6 — Add auth/ownership checks before exposing stored decklists.
+[HIGH] Bug — packages/engine/src/parser.ts:188 — Fix coin-flip special-condition capture to emit valid condition enums.
+[HIGH] Bug — packages/engine/src/attacks.ts:96 — Route multi-coin attacks through normal damage calculation.
+[MEDIUM] Bug — packages/engine/src/abilities.ts:30 — Restrict once-per-turn enforcement to abilities that explicitly say so.
+[MEDIUM] Bug — apps/web/src/pages/simulator/useSimulatorActions.ts:1139 — Validate drag-played stadiums with the same rules as normal trainer play.
+[MEDIUM] Perf — apps/web/src/pages/simulator/useSimulatorState.ts:76 — Replace JSON stringify diffing with explicit mutation markers or a lighter compare strategy.
+[MEDIUM] Perf — apps/backend/src/routes/cards.ts:155 — Rework fuzzy card search to use a searchable normalized column or FTS index.
+[MEDIUM] Org — apps/web/src/pages/simulator/useSimulatorActions.ts:1 — Split setup/combat/drag-drop logic into smaller modules with shared helpers.
+[MEDIUM] Org — apps/backend/src/routes/cards.ts:1 — Extract query-building and row-mapping into testable helpers.
+[MEDIUM] Type Safety — apps/backend/src/routes/cards.ts:42 — Introduce explicit row interfaces instead of `any`.
+[LOW] Maintainability — README.md:1 — Add setup, package map, and local run instructions.
 ```
 
 ## Changes Made
 
-### Dependencies & Configuration
-- `apps/backend/package.json`: switched Wrangler commands to `bunx` and redirected `XDG_CONFIG_HOME` into the workspace so root builds work in this environment.
-- `apps/web/package.json`: switched Vite commands to `bunx`.
-- `packages/engine/package.json`: switched TypeScript invocation to `bunx`.
+### Security
 
-### Correctness & Reliability
-- `apps/web/src/pages/SimulatorPage.tsx`: added cancellation-aware bootstrap error handling around `fetchDecks()` + `autoSetup()`.
-- `apps/web/src/pages/BrowsePage.tsx`: changed metadata loading to `Promise.allSettled()` so partial metadata failures degrade gracefully.
-- `apps/web/src/pages/simulator/useSimulatorState.ts`: only push undo history when the cloned store actually changed.
-- `apps/backend/src/routes/cards.ts`: made list pagination stable with `ORDER BY c.name ASC, c.id ASC`.
+- Added [`.env.example`](/home/jofre/projects/luminous/.env.example) so the repository has a safe environment template without relying on a live secret-bearing local file.
 
-### Type Safety
-- `apps/web/src/lib/api.ts`: tightened response guards for filters, sets, decks, and card detail payloads.
+### Correctness
 
-### Maintainability & UX
-- `apps/web/src/styles/browse.css`: flattened invalid nested selectors to valid native CSS.
-- `apps/web/src/styles/filters.css`: flattened invalid nested selectors that were causing Vite build warnings.
-- `apps/web/src/components/filter-sidebar.tsx`: added explicit `type="button"` to action buttons.
-- `apps/web/src/components/filter-sidebar-sections.tsx`: added explicit `type="button"` to set selection controls.
+- Fixed the coin-flip special-condition parser in [`packages/engine/src/parser.ts#L188`](/home/jofre/projects/luminous/packages/engine/src/parser.ts#L188) so it now emits `Asleep`/`Burned`/etc. instead of the opponent-target phrase.
+- Fixed multi-coin attack resolution in [`packages/engine/src/attacks.ts#L96`](/home/jofre/projects/luminous/packages/engine/src/attacks.ts#L96) so coin-based damage still flows through weakness/resistance logic.
+- Tightened ability usage handling in [`packages/engine/src/abilities.ts#L11`](/home/jofre/projects/luminous/packages/engine/src/abilities.ts#L11) and [`packages/engine/src/abilities.ts#L31`](/home/jofre/projects/luminous/packages/engine/src/abilities.ts#L31) so only explicit once-per-turn abilities consume the turn-use flag.
+- Added legality checks to stadium drag/drop in [`apps/web/src/pages/simulator/useSimulatorActions.ts#L1139`](/home/jofre/projects/luminous/apps/web/src/pages/simulator/useSimulatorActions.ts#L1139), matching the click-to-play trainer path.
+
+### Fairness / Simulator Quality
+
+- Replaced `sort(() => Math.random() - 0.5)` shuffles with the existing Fisher-Yates helper in [`apps/web/src/pages/simulator/useSimulatorActions.ts#L247`](/home/jofre/projects/luminous/apps/web/src/pages/simulator/useSimulatorActions.ts#L247), [`apps/web/src/pages/simulator/useSimulatorActions.ts#L402`](/home/jofre/projects/luminous/apps/web/src/pages/simulator/useSimulatorActions.ts#L402), and [`apps/web/src/pages/simulator/useSimulatorActions.ts#L465`](/home/jofre/projects/luminous/apps/web/src/pages/simulator/useSimulatorActions.ts#L465).
 
 ## Remaining Issues
-- `apps/backend/wrangler.jsonc:11`: deployment is still blocked until a real D1 database ID is configured.
-- `apps/backend/src/routes/cards.ts`: the card browse endpoint still needs a typed DTO pass and narrower SQL selects.
-- `apps/web/src/pages/simulator/useSimulatorActions.ts`: simulator ability/trainer resolution is still incomplete for many card effects.
-- `README.md:1`: repository-level docs still need to be written.
+
+- Deck endpoints still need an auth model. I did not invent one because that changes public behavior and likely deployment assumptions.
+- The simulator state diffing strategy in [`apps/web/src/pages/simulator/useSimulatorState.ts#L76`](/home/jofre/projects/luminous/apps/web/src/pages/simulator/useSimulatorState.ts#L76) should be redesigned rather than micro-optimized.
+- The cards route still needs row typing and likely a query-builder extraction before it becomes pleasant to maintain.
+- Root documentation is still thin; I did not author a new README because it would require product/setup details not reliably discoverable from code alone.
 
 ## Recommendations
-- Add CI for `bun run typecheck` and `bun run build` at the repo root now that both commands execute cleanly.
-- Move backend response shaping toward shared schemas or typed DTOs so frontend/runtime guards and backend payloads stay aligned.
-- Treat unsupported simulator card effects explicitly: either implement them through `@luminous/engine` or mark them unsupported in the UI instead of silently logging text.
-- Fill out the root README with prerequisites, local env setup, D1/R2/Wrangler configuration, and common workflows.
+
+- Add tests around the rules engine, especially `parseEffectText`, `resolveAttack`, and trainer/ability restrictions. These modules encode domain rules and are easy to regress silently.
+- Put an explicit auth decision in front of `/api/decks`: either document that the app is single-user/local-only, or add identity and ownership checks.
+- Introduce a typed data-access layer for the backend instead of shaping D1 results inline inside route files.
+- Split simulator actions into focused modules such as `setup`, `combat`, `trainers`, and `dragDrop` to reduce branching density.
+- Add a real root README with local setup, environment variables, and package responsibilities.
+
+## Verification
+
+- `bun run typecheck`

@@ -31,6 +31,16 @@ export interface StadiumInPlay {
   playedByPlayer: 0 | 1;
 }
 
+export interface PendingDeckSearch {
+  playerIdx: 0 | 1;
+  count: number;
+  destination: "hand" | "bench";
+  candidateUids: string[];
+  selectedUids: string[];
+  title: string;
+  instruction: string;
+}
+
 export interface DragPayload {
   playerIdx: 0 | 1;
   zone: Zone;
@@ -64,6 +74,9 @@ export interface SimulatorActions {
   useAttack: (attackIdx: number) => Promise<void>;
   useAbility: (pokemonUid: string, abilityIdx: number) => Promise<void>;
   playTrainerCard: (uid: string) => Promise<void>;
+  toggleDeckSearchCard: (uid: string) => Promise<void>;
+  confirmDeckSearch: () => Promise<void>;
+  cancelDeckSearch: () => Promise<void>;
   retreat: (benchUid: string) => Promise<void>;
   endTurn: () => Promise<void>;
   newGame: () => Promise<void>;
@@ -87,5 +100,6 @@ export interface SimulatorStore {
   logs: string[];
   players: [PlayerBoard, PlayerBoard];
   stadium: StadiumInPlay | null;
+  pendingDeckSearch: PendingDeckSearch | null;
   gameStarted: boolean;
 }

@@ -14,6 +14,7 @@ import {
   removeBenchPokemon,
   removeHandCard,
   removePrizeCard,
+  shuffle,
 } from "./logic";
 import {
   toEnginePokemon,
@@ -40,6 +41,7 @@ import type { CardAttack, EffectAction, GameState as EngineGameState } from "@lu
 
 type WithStore = <Args extends unknown[], R>(
   fn: (draft: SimulatorStore, ...args: Args) => R | Promise<R>,
+  options?: { history?: "push" | "skip" | "replace" },
 ) => (...args: Args) => Promise<R>;
 
 function evolvePokemon(
@@ -243,8 +245,7 @@ function movePokemonCards(
     return;
   }
 
-  owner.deck.push(...cards);
-  owner.deck = owner.deck.sort(() => Math.random() - 0.5);
+  owner.deck = shuffle([...owner.deck, ...cards]);
 }
 
 function removePokemonFromPlay(
@@ -272,6 +273,71 @@ function autoPromoteFirstBench(store: SimulatorStore, playerIdx: 0 | 1, reason: 
   if (!promoted) return;
   player.active = promoted;
   appendLog(store, `P${playerIdx + 1} promotes ${promoted.base.card.name} ${reason}.`);
+}
+
+function matchesDeckSearchFilter(card: CardInstance, effect: Extract<EffectAction, { type: "search_deck" }>): boolean {
+  if (effect.category && card.card.category !== effect.category) {
+    return false;
+  }
+  if (effect.stage && card.card.stage !== effect.stage) {
+    return false;
+  }
+  if (effect.maxHp != null) {
+    const hp = card.card.hp ?? Infinity;
+    if (hp > effect.maxHp) {
+      return false;
+    }
+  }
+  if (!effect.filter) {
+    return true;
+  }
+
+  const filterLower = effect.filter.toLowerCase();
+  if (filterLower.includes("pokemon") && card.card.category !== "Pokemon") return false;
+  if (filterLower.includes("energy") && card.card.category !== "Energy") return false;
+  if (filterLower.includes("trainer") && card.card.category !== "Trainer") return false;
+
+  return true;
+}
+
+function queueDeckSearchPrompt(
+  store: SimulatorStore,
+  playerIdx: 0 | 1,
+  effect: Extract<EffectAction, { type: "search_deck" }>,
+): boolean {
+  const player = store.players[playerIdx];
+  const destination = effect.destination ?? "hand";
+  const count = destination === "bench"
+    ? Math.min(effect.count, Math.max(0, 5 - player.bench.length))
+    : effect.count;
+
+  if (count <= 0) {
+    appendLog(store, `P${playerIdx + 1} has no room to place searched cards.`);
+    player.deck = shuffle(player.deck);
+    return true;
+  }
+
+  const candidates = player.deck.filter((card) => matchesDeckSearchFilter(card, effect));
+  if (candidates.length === 0) {
+    appendLog(store, `P${playerIdx + 1} searched their deck but found no valid cards.`);
+    player.deck = shuffle(player.deck);
+    return true;
+  }
+
+  store.pendingDeckSearch = {
+    playerIdx,
+    count,
+    destination,
+    candidateUids: candidates.map((card) => card.uid),
+    selectedUids: [],
+    title: destination === "bench" ? "Choose Pokemon to Bench" : "Choose Cards to Take",
+    instruction:
+      destination === "bench"
+        ? `Choose up to ${count} valid card(s) to put onto your Bench.`
+        : `Choose up to ${count} valid card(s) to put into your hand.`,
+  };
+  appendLog(store, `P${playerIdx + 1} is searching their deck.`);
+  return true;
 }
 
 function applyGenericEffects(
@@ -399,7 +465,7 @@ function applyGenericEffects(
         const targetPlayer = effect.player === "self" ? actor : opponent;
         targetPlayer.deck.push(...targetPlayer.hand);
         targetPlayer.hand = [];
-        targetPlayer.deck = targetPlayer.deck.sort(() => Math.random() - 0.5);
+        targetPlayer.deck = shuffle(targetPlayer.deck);
         const drawn = drawFromDeck(targetPlayer, effect.drawCount);
         targetPlayer.hand.push(...drawn);
         appendLog(store, `P${effect.player === "self" ? actorIdx + 1 : opponentIdx + 1} shuffled their hand into the deck and drew ${drawn.length} card(s).`);
@@ -443,27 +509,7 @@ function applyGenericEffects(
           appendLog(store, `P${searchPlayerIdx + 1} has no cards in deck to search.`);
           break;
         }
-        // Auto-search: pick the first N matching cards from deck and add to hand
-        const found: CardInstance[] = [];
-        for (let i = 0; i < searchPlayer.deck.length && found.length < effect.count; i += 1) {
-          const card = searchPlayer.deck[i];
-          if (effect.filter) {
-            const filterLower = effect.filter.toLowerCase();
-            // Basic filter matching: "Pokemon", "Energy", "Trainer", or type names
-            if (filterLower.includes("pokemon") && card.card.category !== "Pokemon") continue;
-            if (filterLower.includes("energy") && card.card.category !== "Energy") continue;
-            if (filterLower.includes("trainer") && card.card.category !== "Trainer") continue;
-          }
-          found.push(card);
-        }
-        for (const card of found) {
-          const idx = searchPlayer.deck.indexOf(card);
-          if (idx !== -1) searchPlayer.deck.splice(idx, 1);
-          searchPlayer.hand.push(card);
-        }
-        // Shuffle deck after search
-        searchPlayer.deck = searchPlayer.deck.sort(() => Math.random() - 0.5);
-        appendLog(store, `P${searchPlayerIdx + 1} searched their deck and found ${found.length} card(s).`);
+        queueDeckSearchPrompt(store, searchPlayerIdx, effect);
         break;
       }
       case "discard_card": {
@@ -571,6 +617,7 @@ export function useSimulatorActions(withStore: WithStore): {
       store.selectedPrizeUid = [null, null];
       store.selectedHandUid = [null, null];
       store.stadium = null;
+      store.pendingDeckSearch = null;
       store.turnNumber = 0;
       store.phase = "setup";
       store.gameStarted = true;
@@ -809,6 +856,61 @@ export function useSimulatorActions(withStore: WithStore): {
       player.discard.push(playedCard);
     }
   });
+
+  const toggleDeckSearchCard = withStore((store, uid: string) => {
+    const pending = store.pendingDeckSearch;
+    if (!pending) return;
+    if (!pending.candidateUids.includes(uid)) return;
+
+    const selected = new Set(pending.selectedUids);
+    if (selected.has(uid)) {
+      selected.delete(uid);
+    } else if (selected.size < pending.count) {
+      selected.add(uid);
+    }
+    pending.selectedUids = [...selected];
+  }, { history: "skip" });
+
+  const confirmDeckSearch = withStore((store) => {
+    const pending = store.pendingDeckSearch;
+    if (!pending) return;
+
+    const player = store.players[pending.playerIdx];
+    const selectedCards: CardInstance[] = [];
+    for (const uid of pending.selectedUids) {
+      const idx = player.deck.findIndex((card) => card.uid === uid);
+      if (idx === -1) continue;
+      const [card] = player.deck.splice(idx, 1);
+      if (card) selectedCards.push(card);
+    }
+
+    if (pending.destination === "bench") {
+      const benchSpace = Math.max(0, 5 - player.bench.length);
+      for (const card of selectedCards.slice(0, benchSpace)) {
+        player.bench.push(makePokemonInPlay(card, store.turnNumber));
+      }
+      appendLog(
+        store,
+        `P${pending.playerIdx + 1} searched their deck and benched ${Math.min(selectedCards.length, benchSpace)} card(s).`,
+      );
+    } else {
+      player.hand.push(...selectedCards);
+      appendLog(store, `P${pending.playerIdx + 1} searched their deck and took ${selectedCards.length} card(s).`);
+    }
+
+    player.deck = shuffle(player.deck);
+    store.pendingDeckSearch = null;
+  }, { history: "replace" });
+
+  const cancelDeckSearch = withStore((store) => {
+    const pending = store.pendingDeckSearch;
+    if (!pending) return;
+
+    const player = store.players[pending.playerIdx];
+    player.deck = shuffle(player.deck);
+    appendLog(store, `P${pending.playerIdx + 1} finished searching their deck without taking cards.`);
+    store.pendingDeckSearch = null;
+  }, { history: "replace" });
 
   // ---------------------------------------------------------------------------
   // Retreat
@@ -1146,6 +1248,21 @@ export function useSimulatorActions(withStore: WithStore): {
       player.hand.push(card);
       return;
     }
+    if (!canAct(store, payload.playerIdx, "play Stadium")) {
+      player.hand.push(card);
+      return;
+    }
+    const canPlay = canPlayTrainer(
+      toEngineCardInstance(card),
+      toEngineBoard(player),
+      buildEngineState(store),
+      payload.playerIdx,
+    );
+    if (!canPlay.allowed) {
+      if (canPlay.reason) appendLog(store, canPlay.reason);
+      player.hand.push(card);
+      return;
+    }
     const oldStadium = store.stadium;
     store.stadium = { card, playedByPlayer: payload.playerIdx };
     appendLog(store, `P${payload.playerIdx + 1} plays ${card.card.name} (Stadium).`);
@@ -1183,6 +1300,9 @@ export function useSimulatorActions(withStore: WithStore): {
       useAttack,
       useAbility,
       playTrainerCard,
+      toggleDeckSearchCard,
+      confirmDeckSearch,
+      cancelDeckSearch,
       retreat,
       endTurn,
       newGame: startNewGame,

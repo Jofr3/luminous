@@ -8,6 +8,12 @@ export interface AbilityUseResult {
   logs: string[];
 }
 
+function isOncePerTurnAbility(ability: CardAbility): boolean {
+  return /once during (?:each )?your turn|once during each player's turn|you can't use more than 1/i.test(
+    ability.effect,
+  );
+}
+
 /** Check if an ability can be used */
 export function canUseAbility(
   pokemon: PokemonInPlay,
@@ -22,7 +28,7 @@ export function canUseAbility(
   }
 
   // Check if already used this turn (for once-per-turn abilities)
-  if (pokemon.usedAbilityThisTurn) {
+  if (isOncePerTurnAbility(ability) && pokemon.usedAbilityThisTurn) {
     return { allowed: false, reason: `${pokemon.base.card.name} already used an Ability this turn.` };
   }
 
@@ -42,7 +48,9 @@ export function useAbility(
   const effects = parseEffectText(ability.effect);
 
   // Mark as used this turn
-  pokemon.usedAbilityThisTurn = true;
+  if (isOncePerTurnAbility(ability)) {
+    pokemon.usedAbilityThisTurn = true;
+  }
 
   return { valid: true, effects, logs };
 }

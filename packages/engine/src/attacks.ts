@@ -104,9 +104,20 @@ export function resolveAttack(ctx: AttackContext): AttackResult {
     // Override the damage base with the multiplied result
     const perHeadDmg = multiCoinFlip.perHeads.find((e) => e.type === "damage");
     const totalDamage = perHeadDmg ? perHeadDmg.amount * heads : ctx.attack.damageBase * heads;
-    if (totalDamage > 0) {
-      applyDamage(ctx.defender, totalDamage);
-      logs.push(`${ctx.defender.base.card.name} takes ${totalDamage} damage. (${ctx.defender.damage}/${ctx.defender.base.card.hp ?? 0})`);
+    const multiCoinCtx: AttackContext = {
+      ...ctx,
+      attack: {
+        ...ctx.attack,
+        damageBase: totalDamage,
+        damageMod: null,
+        damageRaw: String(totalDamage),
+      },
+    };
+    const damage = calculateDamage(multiCoinCtx);
+    logs.push(...damage.steps.map((s) => `  ${s}`));
+    if (damage.finalDamage > 0) {
+      applyDamage(ctx.defender, damage.finalDamage);
+      logs.push(`${ctx.defender.base.card.name} takes ${damage.finalDamage} damage. (${ctx.defender.damage}/${ctx.defender.base.card.hp ?? 0})`);
     } else {
       logs.push("No damage dealt (0 heads).");
     }
@@ -120,9 +131,8 @@ export function resolveAttack(ctx: AttackContext): AttackResult {
 
     return {
       damage: {
-        baseDamage: totalDamage, afterAttackerMods: totalDamage, afterWeakness: totalDamage,
-        afterResistance: totalDamage, afterDefenderMods: totalDamage, finalDamage: totalDamage,
-        steps: [`Multi-coin: ${heads} heads × ${perHeadDmg?.amount ?? ctx.attack.damageBase} = ${totalDamage}`],
+        ...damage,
+        steps: [`Multi-coin: ${heads} heads × ${perHeadDmg?.amount ?? ctx.attack.damageBase} = ${totalDamage}`, ...damage.steps],
       },
       defenderKnockedOut,
       selfDamage: 0,

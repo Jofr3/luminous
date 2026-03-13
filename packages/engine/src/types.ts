@@ -166,7 +166,16 @@ export type EffectAction =
   | { type: "cant_retreat"; turns: number }
   | { type: "ignore_resistance" }
   | { type: "switch_pokemon"; player: "self" | "opponent" }
-  | { type: "search_deck"; player: "self"; filter?: string; count: number }
+  | {
+    type: "search_deck";
+    player: "self";
+    filter?: string;
+    count: number;
+    destination?: "hand" | "bench";
+    category?: CardCategory;
+    stage?: Stage;
+    maxHp?: number;
+  }
   | { type: "shuffle_hand_draw"; player: "self" | "opponent"; drawCount: number }
   | { type: "energy_accelerate"; source: "deck" | "discard" | "hand"; count: number; energyType?: EnergyType | "any" }
   | { type: "bounce"; target: "defender" | "self"; destination: "hand" | "deck" }

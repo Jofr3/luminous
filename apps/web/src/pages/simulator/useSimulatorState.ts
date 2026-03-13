@@ -8,6 +8,7 @@ const MAX_HISTORY = 200;
 /** Backfill fields added after v1 so old localStorage data doesn't crash */
 function migrateStore(store: SimulatorStore): SimulatorStore {
   store.stadium ??= null;
+  store.pendingDeckSearch ??= null;
   store.gameStarted ??= store.phase !== "idle";
   for (const player of store.players) {
     player.supporterPlayedThisTurn ??= false;
@@ -67,6 +68,7 @@ export function useSimulatorState(initial: () => SimulatorStore) {
 
   const withStore = <Args extends unknown[], R>(
     fn: (draft: SimulatorStore, ...args: Args) => R | Promise<R>,
+    options?: { history?: "push" | "skip" | "replace" },
   ) => {
     return async (...args: Args): Promise<R> => {
       const prev = storeRef.current;
@@ -74,8 +76,13 @@ export function useSimulatorState(initial: () => SimulatorStore) {
       const result = await fn(draft, ...args);
 
       if (JSON.stringify(prev) !== JSON.stringify(draft)) {
-        historyRef.current = [...historyRef.current.slice(-(MAX_HISTORY - 1)), prev];
-        futureRef.current = [];
+        const historyMode = options?.history ?? "push";
+        if (historyMode === "push") {
+          historyRef.current = [...historyRef.current.slice(-(MAX_HISTORY - 1)), prev];
+          futureRef.current = [];
+        } else if (historyMode === "replace") {
+          futureRef.current = [];
+        }
         setStore(draft);
       }
 

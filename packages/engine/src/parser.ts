@@ -153,6 +153,23 @@ export function parseEffectText(text: string | null): EffectAction[] {
   const actions: EffectAction[] = [];
   const lower = text.toLowerCase();
 
+  const buddyBuddyPoffinMatch = text.match(
+    /search your deck for up to (\d+) Basic Pok[eé]mon with (\d+) HP or less and put them onto your Bench/i,
+  );
+  if (buddyBuddyPoffinMatch) {
+    actions.push({
+      type: "search_deck",
+      player: "self",
+      count: parseInt(buddyBuddyPoffinMatch[1], 10),
+      destination: "bench",
+      category: "Pokemon",
+      stage: "Basic",
+      maxHp: parseInt(buddyBuddyPoffinMatch[2], 10),
+      filter: `Basic Pokemon with ${buddyBuddyPoffinMatch[2]} HP or less`,
+    });
+    return actions;
+  }
+
   // Coin flip with damage prevention
   if (/flip a coin.*if heads.*prevent all damage/i.test(text)) {
     actions.push({
@@ -187,7 +204,7 @@ export function parseEffectText(text: string | null): EffectAction[] {
   // Coin flip with special condition
   const coinCondMatch = text.match(/flip a coin.*if heads.*(?:the defending|your opponent's active) pok[eé]mon is now (Asleep|Burned|Confused|Paralyzed|Poisoned)/i);
   if (coinCondMatch) {
-    const condition = coinCondMatch[1] as SpecialCondition;
+    const condition = coinCondMatch[2] as SpecialCondition;
     actions.push({
       type: "coin_flip",
       onHeads: [{ type: "special_condition", target: "defender", condition }],
@@ -276,7 +293,12 @@ export function parseEffectText(text: string | null): EffectAction[] {
   if (searchMatch) {
     const countStr = searchMatch[1];
     const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
-    actions.push({ type: "search_deck", player: "self", count });
+    actions.push({
+      type: "search_deck",
+      player: "self",
+      count,
+      destination: /onto your Bench|to your Bench/i.test(text) ? "bench" : "hand",
+    });
   }
 
   // Energy acceleration from discard
