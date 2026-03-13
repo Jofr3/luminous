@@ -8,8 +8,8 @@ export default defineConfig(() => {
     server: {
       port: 5173,
       proxy: {
-        "/api": "http://localhost:8788",
-        "/images": "http://localhost:8788",
+        "/api": "http://localhost:8787",
+        "/images": "http://localhost:8787",
       },
     },
     preview: {

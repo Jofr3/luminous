@@ -64,6 +64,12 @@ export interface PendingOpponentSwitch {
   remainingEffects: import("@luminous/engine").EffectAction[];
 }
 
+export interface PendingSelfSwitch {
+  actorIdx: 0 | 1;
+  opponentIdx: 0 | 1;
+  remainingEffects: import("@luminous/engine").EffectAction[];
+}
+
 export interface DragPayload {
   playerIdx: 0 | 1;
   zone: Zone;
@@ -105,6 +111,8 @@ export interface SimulatorActions {
   cancelDeckSearch: () => Promise<void>;
   confirmOpponentSwitch: (benchUid: string) => Promise<void>;
   cancelOpponentSwitch: () => Promise<void>;
+  confirmSelfSwitch: (benchUid: string) => Promise<void>;
+  cancelSelfSwitch: () => Promise<void>;
   dropToTrainerUse: (payload: DragPayload) => Promise<void>;
   retreat: (benchUid: string) => Promise<void>;
   endTurn: () => Promise<void>;
@@ -132,5 +140,6 @@ export interface SimulatorStore {
   pendingHandSelection: PendingHandSelection | null;
   pendingDeckSearch: PendingDeckSearch | null;
   pendingOpponentSwitch: PendingOpponentSwitch | null;
+  pendingSelfSwitch: PendingSelfSwitch | null;
   gameStarted: boolean;
 }

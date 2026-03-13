@@ -519,17 +519,14 @@ function applyGenericEffects(
           appendLog(store, `Choose a Pokémon from your opponent's Bench to switch with their Active Pokémon.`);
           return;
         }
-        // Self switch: auto-pick first bench (user already chose via retreat)
-        const incoming = targetPlayer.bench.shift();
-        if (!incoming) break;
-        const previousActive = targetPlayer.active;
-        previousActive.specialConditions = [];
-        previousActive.poisonDamage = 10;
-        previousActive.burnDamage = 20;
-        targetPlayer.active = incoming;
-        targetPlayer.bench.push(previousActive);
-        appendLog(store, `P${targetIdx + 1} switches ${previousActive.base.card.name} with ${incoming.base.card.name}.`);
-        break;
+        // Self switch: let user choose which bench Pokemon to switch in
+        store.pendingSelfSwitch = {
+          actorIdx,
+          opponentIdx,
+          remainingEffects,
+        };
+        appendLog(store, `Choose one of your Benched Pokémon to switch with your Active Pokémon.`);
+        return;
       }
       case "shuffle_hand_draw": {
         const targetPlayer = effect.player === "self" ? actor : opponent;
@@ -679,6 +676,7 @@ export function useSimulatorActions(withStore: WithStore): {
       store.pendingHandSelection = null;
       store.pendingDeckSearch = null;
       store.pendingOpponentSwitch = null;
+      store.pendingSelfSwitch = null;
       store.turnNumber = 0;
       store.phase = "setup";
       store.gameStarted = true;
@@ -1062,6 +1060,47 @@ export function useSimulatorActions(withStore: WithStore): {
     if (!store.pendingOpponentSwitch) return;
     store.pendingOpponentSwitch = null;
     appendLog(store, "Opponent switch cancelled.");
+  }, { history: "replace" });
+
+  // ---------------------------------------------------------------------------
+  // Self Switch (Prime Catcher etc.)
+  // ---------------------------------------------------------------------------
+
+  const confirmSelfSwitch = withStore((store, benchUid: string) => {
+    const pending = store.pendingSelfSwitch;
+    if (!pending) return;
+
+    const actor = store.players[pending.actorIdx];
+    if (!actor.active) {
+      store.pendingSelfSwitch = null;
+      return;
+    }
+
+    const benchIdx = actor.bench.findIndex((p) => p.uid === benchUid);
+    if (benchIdx === -1) return;
+
+    const [incoming] = actor.bench.splice(benchIdx, 1);
+    if (!incoming) return;
+
+    const previousActive = actor.active;
+    previousActive.specialConditions = [];
+    previousActive.poisonDamage = 10;
+    previousActive.burnDamage = 20;
+    actor.active = incoming;
+    actor.bench.push(previousActive);
+    appendLog(store, `P${pending.actorIdx + 1} switches ${previousActive.base.card.name} with ${incoming.base.card.name}.`);
+
+    const remainingEffects = pending.remainingEffects;
+    const actorIdx = pending.actorIdx;
+    const opponentIdx = pending.opponentIdx;
+    store.pendingSelfSwitch = null;
+    applyGenericEffects(store, actorIdx, opponentIdx, remainingEffects);
+  }, { history: "replace" });
+
+  const cancelSelfSwitch = withStore((store) => {
+    if (!store.pendingSelfSwitch) return;
+    store.pendingSelfSwitch = null;
+    appendLog(store, "Self switch cancelled.");
   }, { history: "replace" });
 
   // ---------------------------------------------------------------------------
@@ -1468,6 +1507,8 @@ export function useSimulatorActions(withStore: WithStore): {
       cancelDeckSearch,
       confirmOpponentSwitch,
       cancelOpponentSwitch,
+      confirmSelfSwitch,
+      cancelSelfSwitch,
       dropToTrainerUse,
       retreat,
       endTurn,

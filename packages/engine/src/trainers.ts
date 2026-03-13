@@ -57,6 +57,15 @@ export function canPlayTrainer(
     return { allowed: false };
   }
 
+  // Switch-opponent cards (Boss's Orders, Prime Catcher, etc.): opponent must have benched Pokemon
+  const hasOpponentSwitch = effects.some((e) => e.type === "switch_pokemon" && e.player === "opponent");
+  if (hasOpponentSwitch) {
+    const opponentIdx = (playerIdx === 0 ? 1 : 0) as 0 | 1;
+    if (state.players[opponentIdx].bench.length === 0) {
+      return { allowed: false, reason: "Your opponent has no Benched Pokémon to switch." };
+    }
+  }
+
   // Cards that recover from discard pile: must have valid targets
   if (data.effect && /from your discard pile into your hand/i.test(data.effect)) {
     const discardPile = playerBoard.discard;

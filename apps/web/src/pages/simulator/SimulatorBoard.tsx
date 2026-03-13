@@ -54,6 +54,12 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
         return;
       }
 
+      // During pending self switch, dropping own bench onto own active confirms the switch
+      if (store.pendingSelfSwitch && payload.zone === "bench" && payload.playerIdx === store.pendingSelfSwitch.actorIdx && playerIdx === store.pendingSelfSwitch.actorIdx) {
+        void actions.confirmSelfSwitch(payload.uid);
+        return;
+      }
+
       void actions.dropToActive(payload, playerIdx);
       return;
     }
@@ -88,7 +94,6 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
   const active = currentPlayer.active;
   const pendingHandSelection = store.pendingHandSelection;
   const pendingDeckSearch = store.pendingDeckSearch;
-  const pendingOpponentSwitch = store.pendingOpponentSwitch;
   const pendingHandCards = pendingHandSelection
     ? store.players[pendingHandSelection.playerIdx].hand.filter((card) =>
       pendingHandSelection.candidateUids.includes(card.uid))
@@ -130,7 +135,6 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                 isTop={true}
                 store={store}
                 actions={actions}
-                highlightBench={!!pendingOpponentSwitch}
               />
 
               <Droppable id="stadium" className="stadium">
@@ -415,14 +419,6 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                 </button>
               </div>
             </div>
-          </div>
-        )}
-        {pendingOpponentSwitch && (
-          <div className="opponent-switch-banner">
-            <span>Drag an opponent's Bench Pokémon to their Active spot</span>
-            <button type="button" className="btn" onClick={() => void actions.cancelOpponentSwitch()}>
-              Cancel
-            </button>
           </div>
         )}
       </div>

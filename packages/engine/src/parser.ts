@@ -273,17 +273,17 @@ export function parseEffectText(text: string | null): EffectAction[] {
     actions.push({ type: "damage", target: "bench", amount: parseInt(benchDmgMatch[1], 10) });
   }
 
-  // Self-switch: "Switch this Pokemon with 1 of your Benched Pokemon"
-  if (/switch (?:this|your active) pok[eé]mon with (?:1|one) of your benched/i.test(text)) {
-    actions.push({ type: "switch_pokemon", player: "self" });
-  }
   // Boss's Orders style: "Switch in 1 of your opponent's Benched Pokemon to the Active Spot"
-  else if (/switch in.*opponent'?s? benched.*active spot/i.test(text)) {
+  if (/switch in.*opponent'?s? benched.*active spot/i.test(text)) {
     actions.push({ type: "switch_pokemon", player: "opponent" });
   }
   // Opponent switch: "Switch your opponent's Active Pokemon"
   else if (/switch.*opponent'?s? active/i.test(text)) {
     actions.push({ type: "switch_pokemon", player: "opponent" });
+  }
+  // Self-switch: "Switch this/your Active Pokemon with 1 of your Benched Pokemon"
+  if (/switch (?:this|your active) pok[eé]mon with (?:1|one) of your benched/i.test(text)) {
+    actions.push({ type: "switch_pokemon", player: "self" });
   }
 
   // Shuffle and draw: "Shuffle your hand into your deck. Then, draw N cards"

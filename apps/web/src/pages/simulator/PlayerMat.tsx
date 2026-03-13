@@ -8,10 +8,9 @@ interface PlayerMatProps {
   store: SimulatorStore;
   actions: SimulatorActions;
   isDraggingTrainer?: boolean;
-  highlightBench?: boolean;
 }
 
-export function PlayerMat({ pIdx, isTop, store, actions, isDraggingTrainer, highlightBench }: PlayerMatProps) {
+export function PlayerMat({ pIdx, isTop, store, actions, isDraggingTrainer }: PlayerMatProps) {
   const player = store.players[pIdx];
   const selectedPrize = store.selectedPrizeUid[pIdx];
   const hasUsedTrainers = player.trainerUseZone.length > 0;
@@ -79,7 +78,7 @@ export function PlayerMat({ pIdx, isTop, store, actions, isDraggingTrainer, high
         </Droppable>
 
         <Droppable id={`bench:${pIdx}`} className="bench">
-          <div className={`bench-slot ${highlightBench ? "highlight-bench" : ""}`}>
+          <div className="bench-slot">
             {player.bench.length === 0 && (
               <span className="label">Bench</span>
             )}
