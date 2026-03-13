@@ -303,6 +303,7 @@ function applyGenericEffects(
 ): void {
   const actor = store.players[actorIdx];
   const opponent = store.players[opponentIdx];
+  let discardedStadiumThisSequence = false;
 
   for (let effectIndex = 0; effectIndex < effects.length; effectIndex += 1) {
     const effect = effects[effectIndex];
@@ -524,6 +525,545 @@ function applyGenericEffects(
       case "prevent_damage":
         appendLog(store, "Damage prevention effect noted (not fully tracked in simulator).");
         break;
+      case "damage_per_energy": {
+        const target = opponent.active;
+        if (!target) break;
+        let energyCount = 0;
+        if (effect.source === "self" || effect.source === "both") {
+          energyCount += (actor.active?.attached.filter((c) => c.card.category === "Energy").length ?? 0);
+        }
+        if (effect.source === "defender" || effect.source === "both") {
+          energyCount += target.attached.filter((c) => c.card.category === "Energy").length;
+        }
+        const totalDmg = effect.amount * energyCount;
+        if (totalDmg > 0) {
+          target.damage += totalDmg;
+          appendLog(store, `${target.base.card.name} takes ${totalDmg} damage (${energyCount} Energy x ${effect.amount}).`);
+          if (target.damage >= (target.base.card.hp ?? 0)) {
+            resolveActiveKnockOut(store, opponentIdx, prizesToTake(toEnginePokemon(target)), " from effect damage");
+          }
+        }
+        break;
+      }
+      case "damage_per_damage_counter": {
+        const target = opponent.active;
+        if (!target) break;
+        const source = effect.source === "self" ? actor.active : target;
+        if (!source) break;
+        const counters = Math.floor(source.damage / 10);
+        const totalDmg = effect.amount * counters;
+        if (totalDmg > 0) {
+          target.damage += totalDmg;
+          appendLog(store, `${target.base.card.name} takes ${totalDmg} damage (${counters} damage counters x ${effect.amount}).`);
+          if (target.damage >= (target.base.card.hp ?? 0)) {
+            resolveActiveKnockOut(store, opponentIdx, prizesToTake(toEnginePokemon(target)), " from effect damage");
+          }
+        }
+        break;
+      }
+      case "damage_per_bench": {
+        const target = opponent.active;
+        if (!target) break;
+        let benchCount = 0;
+        if (effect.whose === "self" || effect.whose === "both") benchCount += actor.bench.length;
+        if (effect.whose === "opponent" || effect.whose === "both") benchCount += opponent.bench.length;
+        const totalDmg = effect.amount * benchCount;
+        if (totalDmg > 0) {
+          target.damage += totalDmg;
+          appendLog(store, `${target.base.card.name} takes ${totalDmg} damage (${benchCount} Bench Pokemon x ${effect.amount}).`);
+          if (target.damage >= (target.base.card.hp ?? 0)) {
+            resolveActiveKnockOut(store, opponentIdx, prizesToTake(toEnginePokemon(target)), " from effect damage");
+          }
+        }
+        break;
+      }
+      case "conditional_damage": {
+        const target = opponent.active;
+        if (!target) break;
+        let conditionMet = false;
+        if (effect.condition === "ex_or_v") {
+          const suffix = target.base.card.suffix;
+          conditionMet = suffix === "ex" || suffix === "EX" || suffix === "V" || suffix === "VMAX" || suffix === "VSTAR";
+        } else if (effect.condition === "has_damage") {
+          conditionMet = target.damage > 0;
+        } else if (effect.condition === "has_special_condition") {
+          conditionMet = target.specialConditions.length > 0;
+        }
+        if (conditionMet) {
+          target.damage += effect.amount;
+          appendLog(store, `${target.base.card.name} takes ${effect.amount} bonus damage (condition: ${effect.condition}).`);
+          if (target.damage >= (target.base.card.hp ?? 0)) {
+            resolveActiveKnockOut(store, opponentIdx, prizesToTake(toEnginePokemon(target)), " from effect damage");
+          }
+        }
+        break;
+      }
+      case "bench_snipe": {
+        const benchTarget = opponent.bench[0] ?? null;
+        if (!benchTarget) {
+          appendLog(store, "No valid bench target for snipe.");
+          break;
+        }
+        benchTarget.damage += effect.amount;
+        appendLog(store, `${benchTarget.base.card.name} takes ${effect.amount} snipe damage.`);
+        if (benchTarget.damage >= (benchTarget.base.card.hp ?? 0)) {
+          const benchIdx = opponent.bench.findIndex((p) => p.uid === benchTarget.uid);
+          if (benchIdx !== -1) {
+            const [knocked] = opponent.bench.splice(benchIdx, 1);
+            if (knocked) {
+              appendLog(store, `${knocked.base.card.name} is Knocked Out from bench snipe!`);
+              opponent.discard.push(knocked.base, ...knocked.attached);
+              takePrizeCards(store, actorIdx, prizesToTake(toEnginePokemon(knocked)), "from bench KO.");
+              applyWinChecks(store);
+            }
+          }
+        }
+        break;
+      }
+      case "self_condition": {
+        const selfActive = actor.active;
+        if (!selfActive) break;
+        if (effect.condition === "recover_all") {
+          selfActive.specialConditions = [];
+          appendLog(store, `${selfActive.base.card.name} recovered from all Special Conditions.`);
+        } else {
+          const engineTarget = toEnginePokemon(selfActive);
+          const log = applySpecialCondition(engineTarget, effect.condition);
+          syncFromEnginePokemon(selfActive, engineTarget);
+          appendLog(store, log);
+        }
+        break;
+      }
+      case "deck_mill": {
+        const milled = opponent.deck.splice(0, effect.count);
+        opponent.discard.push(...milled);
+        appendLog(store, `P${opponentIdx + 1} discarded ${milled.length} card(s) from the top of their deck.`);
+        break;
+      }
+      case "hand_disruption": {
+        if (effect.mode === "random_discard") {
+          let remaining = effect.count;
+          while (remaining > 0 && opponent.hand.length > 0) {
+            const idx = Math.floor(Math.random() * opponent.hand.length);
+            const [removed] = opponent.hand.splice(idx, 1);
+            if (removed) opponent.discard.push(removed);
+            remaining -= 1;
+          }
+          appendLog(store, `P${opponentIdx + 1} discarded ${effect.count - remaining} random card(s) from hand.`);
+        } else {
+          appendLog(store, `P${opponentIdx + 1} must discard ${effect.count} card(s) from hand (opponent chooses - not yet interactive).`);
+        }
+        break;
+      }
+      case "damage_reduction":
+        appendLog(store, `Damage reduction of ${effect.amount} noted for ${effect.turns} turn(s).`);
+        break;
+      case "item_lock":
+        appendLog(store, `Item lock effect noted for ${effect.turns} turn(s).`);
+        break;
+      case "copy_attack":
+        appendLog(store, "Copy attack effect (not fully implemented in simulator).");
+        break;
+      case "self_evolve": {
+        const selfActive = actor.active;
+        if (!selfActive) break;
+        const evoName = selfActive.base.card.name;
+        const evoCardIdx = actor.deck.findIndex(
+          (card) => card.card.category === "Pokemon" && card.card.evolve_from === evoName,
+        );
+        if (evoCardIdx === -1) {
+          appendLog(store, `No evolution for ${evoName} found in deck.`);
+          actor.deck = shuffle(actor.deck);
+          break;
+        }
+        const [evoCard] = actor.deck.splice(evoCardIdx, 1);
+        if (evoCard) {
+          evolvePokemon(store, selfActive, evoCard, actorIdx);
+          actor.deck = shuffle(actor.deck);
+        }
+        break;
+      }
+      case "discard_opponent_energy": {
+        const target = opponent.active;
+        if (!target) break;
+        let remaining = effect.count;
+        while (remaining > 0) {
+          const energyIdx = target.attached.findLastIndex((card) => {
+            if (card.card.category !== "Energy") return false;
+            return !effect.energyType || effect.energyType === "any" || card.card.energy_type === effect.energyType;
+          });
+          if (energyIdx === -1) break;
+          const [removed] = target.attached.splice(energyIdx, 1);
+          if (removed) opponent.discard.push(removed);
+          remaining -= 1;
+        }
+        appendLog(store, `Discarded ${effect.count - remaining} Energy from opponent's Active Pokemon.`);
+        break;
+      }
+      case "damage_for_retreat_cost": {
+        const target = opponent.active;
+        if (!target) break;
+        const retreatCost = target.base.card.retreat ?? 0;
+        const totalDmg = effect.amount * retreatCost;
+        if (totalDmg > 0) {
+          target.damage += totalDmg;
+          appendLog(store, `${target.base.card.name} takes ${totalDmg} damage (retreat cost ${retreatCost} x ${effect.amount}).`);
+          if (target.damage >= (target.base.card.hp ?? 0)) {
+            resolveActiveKnockOut(store, opponentIdx, prizesToTake(toEnginePokemon(target)), " from effect damage");
+          }
+        }
+        break;
+      }
+      case "discard_stadium": {
+        if (!store.stadium) {
+          if (!effect.conditional) appendLog(store, "No Stadium in play to discard.");
+          break;
+        }
+        const stadiumCard = store.stadium.card;
+        const stadiumOwner = store.stadium.playedByPlayer;
+        store.players[stadiumOwner].discard.push(stadiumCard);
+        appendLog(store, `${stadiumCard.card.name} was discarded.`);
+        store.stadium = null;
+        discardedStadiumThisSequence = true;
+        break;
+      }
+      case "return_energy_to_hand": {
+        const selfActive = actor.active;
+        if (!selfActive) break;
+        let remaining = effect.count;
+        for (let i = selfActive.attached.length - 1; i >= 0 && remaining > 0; i -= 1) {
+          if (selfActive.attached[i].card.category === "Energy") {
+            const [energy] = selfActive.attached.splice(i, 1);
+            if (energy) {
+              actor.hand.push(energy);
+              remaining -= 1;
+            }
+          }
+        }
+        appendLog(store, `Returned ${effect.count - remaining} Energy to hand.`);
+        break;
+      }
+      case "flip_until_tails": {
+        let heads = 0;
+        while (true) {
+          const flip = Math.random() < 0.5 ? "Heads" : "Tails";
+          if (flip === "Tails") {
+            appendLog(store, `Coin flip: Tails. Total heads: ${heads}.`);
+            break;
+          }
+          heads += 1;
+          appendLog(store, `Coin flip: Heads (${heads} so far).`);
+        }
+        if (heads > 0) {
+          for (const perHead of effect.perHeads) {
+            if (perHead.type === "damage") {
+              applyGenericEffects(store, actorIdx, opponentIdx, [{ ...perHead, amount: perHead.amount * heads }]);
+            } else {
+              for (let i = 0; i < heads; i += 1) applyGenericEffects(store, actorIdx, opponentIdx, [perHead]);
+            }
+          }
+        }
+        break;
+      }
+      case "bench_damage_self": {
+        for (const pokemon of actor.bench) {
+          pokemon.damage += effect.amount;
+          appendLog(store, `${pokemon.base.card.name} takes ${effect.amount} bench damage.`);
+          if (pokemon.damage >= (pokemon.base.card.hp ?? 0)) {
+            const benchIdx = actor.bench.findIndex((p) => p.uid === pokemon.uid);
+            if (benchIdx !== -1) {
+              const [knocked] = actor.bench.splice(benchIdx, 1);
+              if (knocked) {
+                appendLog(store, `${knocked.base.card.name} is Knocked Out from self bench damage!`);
+                actor.discard.push(knocked.base, ...knocked.attached);
+                takePrizeCards(store, opponentIdx, prizesToTake(toEnginePokemon(knocked)), "from bench KO.");
+                applyWinChecks(store);
+              }
+            }
+          }
+        }
+        break;
+      }
+      case "damage_ignore_effects":
+        appendLog(store, "This attack's damage isn't affected by any effects on the Defending Pokemon.");
+        break;
+      case "discard_tools_before_damage":
+        appendLog(store, "Discard Tools before damage (noted).");
+        break;
+      case "conditional_stadium_damage": {
+        if (!discardedStadiumThisSequence) break;
+        const target = opponent.active;
+        if (!target) break;
+        target.damage += effect.amount;
+        appendLog(store, `${target.base.card.name} takes ${effect.amount} bonus damage (Stadium in play).`);
+        if (target.damage >= (target.base.card.hp ?? 0)) {
+          resolveActiveKnockOut(store, opponentIdx, prizesToTake(toEnginePokemon(target)), " from effect damage");
+        }
+        break;
+      }
+      case "extra_prize":
+        appendLog(store, `Take ${effect.count} extra Prize card(s) on KO (noted).`);
+        break;
+      case "bounce_self_to_hand": {
+        const selfActive = actor.active;
+        if (!selfActive) break;
+        const removed = removePokemonFromPlay(store, actorIdx, selfActive.uid);
+        if (!removed) break;
+        movePokemonCards(store, actorIdx, removed, "hand");
+        appendLog(store, `${removed.base.card.name} returned to hand.`);
+        autoPromoteFirstBench(store, actorIdx, "after bounce");
+        break;
+      }
+      case "heal_equal_to_damage": {
+        const selfActive = actor.active;
+        const target = opponent.active;
+        if (!selfActive || !target) break;
+        // Heal self equal to damage dealt this attack (approximate with target's last damage taken)
+        appendLog(store, "Heal equal to damage dealt (noted).");
+        break;
+      }
+      case "damage_per_tool": {
+        const target = opponent.active;
+        if (!target) break;
+        const toolCount = [actor.active, ...actor.bench]
+          .filter((pokemon): pokemon is PokemonInPlay => pokemon !== null)
+          .reduce((count, pokemon) => (
+            count + pokemon.attached.filter((card) => card.card.trainer_type === "Tool").length
+          ), 0);
+        const totalDmg = effect.amount * toolCount;
+        if (totalDmg > 0) {
+          target.damage += totalDmg;
+          appendLog(store, `${target.base.card.name} takes ${totalDmg} damage (${toolCount} Tool(s) x ${effect.amount}).`);
+          if (target.damage >= (target.base.card.hp ?? 0)) {
+            resolveActiveKnockOut(store, opponentIdx, prizesToTake(toEnginePokemon(target)), " from effect damage");
+          }
+        }
+        break;
+      }
+      case "damage_per_prize": {
+        const target = opponent.active;
+        if (!target) break;
+        const prizeCount = opponent.takenPrizes;
+        const totalDmg = effect.amount * prizeCount;
+        if (totalDmg > 0) {
+          target.damage += totalDmg;
+          appendLog(store, `${target.base.card.name} takes ${totalDmg} damage (${prizeCount} Prize(s) x ${effect.amount}).`);
+          if (target.damage >= (target.base.card.hp ?? 0)) {
+            resolveActiveKnockOut(store, opponentIdx, prizesToTake(toEnginePokemon(target)), " from effect damage");
+          }
+        }
+        break;
+      }
+      case "damage_for_energy_type": {
+        const selfActive = actor.active;
+        const target = opponent.active;
+        if (!selfActive || !target) break;
+        const matchingEnergy = selfActive.attached.filter(
+          (c) => c.card.category === "Energy" && c.card.energy_type === effect.energyType,
+        ).length;
+        const totalDmg = effect.amount * matchingEnergy;
+        if (totalDmg > 0) {
+          target.damage += totalDmg;
+          appendLog(store, `${target.base.card.name} takes ${totalDmg} damage (${matchingEnergy} ${effect.energyType} Energy x ${effect.amount}).`);
+          if (target.damage >= (target.base.card.hp ?? 0)) {
+            resolveActiveKnockOut(store, opponentIdx, prizesToTake(toEnginePokemon(target)), " from effect damage");
+          }
+        }
+        break;
+      }
+      case "opponent_hand_reveal_shuffle": {
+        if (opponent.hand.length === 0) {
+          appendLog(store, `P${opponentIdx + 1} has no cards in hand.`);
+          break;
+        }
+        const shuffleCount = Math.min(effect.count, opponent.hand.length);
+        const indices: number[] = [];
+        while (indices.length < shuffleCount) {
+          const idx = Math.floor(Math.random() * opponent.hand.length);
+          if (!indices.includes(idx)) indices.push(idx);
+        }
+        indices.sort((a, b) => b - a);
+        for (const idx of indices) {
+          const [card] = opponent.hand.splice(idx, 1);
+          if (card) opponent.deck.push(card);
+        }
+        opponent.deck = shuffle(opponent.deck);
+        appendLog(store, `P${opponentIdx + 1} shuffled ${shuffleCount} card(s) from hand into deck.`);
+        break;
+      }
+      case "cant_attack_self_tails": {
+        const flip = Math.random() < 0.5 ? "Heads" : "Tails";
+        appendLog(store, `Coin flip: ${flip}.`);
+        if (flip === "Tails") {
+          appendLog(store, "This Pokemon can't attack during its next turn (Tails).");
+        }
+        break;
+      }
+      // --- Trainer-specific effect handlers ---
+      case "shuffle_all_draw": {
+        // Both players shuffle hands into decks, then each draws
+        for (const [player, drawCount, idx] of [
+          [actor, effect.selfDraw, actorIdx] as const,
+          [opponent, effect.opponentDraw, opponentIdx] as const,
+        ]) {
+          player.deck.push(...player.hand);
+          player.hand = [];
+          player.deck = shuffle(player.deck);
+          const drawn = drawFromDeck(player, drawCount);
+          player.hand.push(...drawn);
+          appendLog(store, `P${idx + 1} shuffled hand into deck and drew ${drawn.length} card(s).`);
+        }
+        break;
+      }
+      case "iono_effect": {
+        // Each player shuffles hand to bottom of deck, draws cards = remaining prizes
+        for (const [player, idx] of [
+          [actor, actorIdx] as const,
+          [opponent, opponentIdx] as const,
+        ]) {
+          const handCards = [...player.hand];
+          player.hand = [];
+          player.deck.push(...handCards);
+          const prizesRemaining = player.prizes.length;
+          const drawn = drawFromDeck(player, prizesRemaining);
+          player.hand.push(...drawn);
+          appendLog(store, `P${idx + 1} put their hand on the bottom of the deck and drew ${drawn.length} card(s) (${prizesRemaining} prizes remaining).`);
+        }
+        break;
+      }
+      case "conditional_shuffle_draw": {
+        const drawCount = /exactly 6 prize cards? remaining/i.test(effect.condition) && actor.prizes.length === 6
+          ? effect.conditionalDraw
+          : effect.defaultDraw;
+        actor.deck.push(...actor.hand);
+        actor.hand = [];
+        actor.deck = shuffle(actor.deck);
+        const drawn = drawFromDeck(actor, drawCount);
+        actor.hand.push(...drawn);
+        appendLog(store, `P${actorIdx + 1} shuffled their hand into the deck and drew ${drawn.length} card(s).`);
+        break;
+      }
+      case "draw_until": {
+        const currentHandSize = actor.hand.length;
+        const toDraw = Math.max(0, effect.count - currentHandSize);
+        if (toDraw > 0) {
+          const drawn = drawFromDeck(actor, toDraw);
+          actor.hand.push(...drawn);
+          appendLog(store, `P${actorIdx + 1} drew ${drawn.length} card(s) (until ${effect.count} in hand).`);
+        } else {
+          appendLog(store, `P${actorIdx + 1} already has ${currentHandSize} cards in hand.`);
+        }
+        break;
+      }
+      case "conditional_draw": {
+        const baseDrawn = drawFromDeck(actor, effect.baseDraw);
+        actor.hand.push(...baseDrawn);
+        appendLog(store, `P${actorIdx + 1} drew ${baseDrawn.length} card(s).`);
+        appendLog(store, `Manual effect: draw ${effect.bonusDraw} more card(s) if ${effect.condition}.`);
+        break;
+      }
+      case "move_energy": {
+        // Complex UI needed — log as manual effect
+        appendLog(store, `Manual effect: Move up to ${effect.count} Energy (from ${effect.from} to ${effect.to}).`);
+        break;
+      }
+      case "scoop_up": {
+        // For now, log as manual since it needs Pokemon selection UI
+        if (effect.keepAttached) {
+          appendLog(store, `Manual effect: Return a ${effect.target === "basic" ? "Basic " : ""}Pokemon and all attached cards to your hand.`);
+        } else {
+          appendLog(store, `Manual effect: Return a Pokemon to your hand. Discard all attached cards.`);
+        }
+        break;
+      }
+      case "recover_from_discard": {
+        // Needs selection UI — log as manual
+        const dest = effect.destination === "hand" ? "hand" : "deck";
+        const what = effect.filter ?? effect.category ?? "cards";
+        appendLog(store, `Manual effect: Put up to ${effect.count} ${what} from discard pile into ${dest}.`);
+        break;
+      }
+      case "look_at_top": {
+        // Needs selection UI — log as manual
+        const filterDesc = effect.filter ? ` (${effect.filter})` : "";
+        appendLog(store, `Manual effect: Look at top ${effect.count} cards, take ${effect.takeCount}${filterDesc} to hand.`);
+        break;
+      }
+      case "heal_all": {
+        // Heal X from each of player's Pokemon
+        const allPokemon = [actor.active, ...actor.bench].filter((p): p is PokemonInPlay => p !== null);
+        let healed = 0;
+        for (const pokemon of allPokemon) {
+          if (effect.target === "all_type" && effect.typeFilter) {
+            const types = pokemon.base.card.types ?? [];
+            if (!types.some((t) => t.toLowerCase() === effect.typeFilter!.toLowerCase())) continue;
+          }
+          if (pokemon.damage > 0) {
+            const before = pokemon.damage;
+            pokemon.damage = Math.max(0, pokemon.damage - effect.amount);
+            if (before !== pokemon.damage) healed += 1;
+          }
+        }
+        appendLog(store, `Healed ${effect.amount} damage from ${healed} Pokemon.`);
+        break;
+      }
+      case "heal_target": {
+        if (effect.target === "active") {
+          const target = actor.active;
+          if (!target || target.damage <= 0) break;
+          if (effect.amount === "all") {
+            target.damage = 0;
+            appendLog(store, `${target.base.card.name} healed all damage.`);
+          } else {
+            target.damage = Math.max(0, target.damage - effect.amount);
+            appendLog(store, `${target.base.card.name} healed ${effect.amount} damage.`);
+          }
+        } else {
+          // target === "any" — needs selection UI, log as manual
+          if (effect.amount === "all") {
+            appendLog(store, "Manual effect: Heal all damage from 1 of your Pokemon.");
+          } else {
+            appendLog(store, `Manual effect: Heal ${effect.amount} damage from 1 of your Pokemon.`);
+          }
+        }
+        break;
+      }
+      case "discard_opponent_tool": {
+        // Iterate opponent's Pokemon, remove tools and optionally special energy
+        const opponentPokemon = [opponent.active, ...opponent.bench].filter((p): p is PokemonInPlay => p !== null);
+        let discarded = 0;
+        for (const pokemon of opponentPokemon) {
+          for (let i = pokemon.attached.length - 1; i >= 0; i--) {
+            const card = pokemon.attached[i];
+            const isTool = card.card.category === "Trainer" && card.card.trainer_type === "Tool";
+            const isSpecialEnergy = card.card.category === "Energy" && card.card.energy_type === "Special";
+            if (isTool || (effect.includeSpecialEnergy && isSpecialEnergy)) {
+              const [removed] = pokemon.attached.splice(i, 1);
+              if (removed) {
+                opponent.discard.push(removed);
+                discarded += 1;
+              }
+              if (discarded >= effect.count) break;
+            }
+          }
+          if (discarded >= effect.count) break;
+        }
+        if (effect.includeStadium && store.stadium) {
+          const stadiumOwner = store.players[store.stadium.playedByPlayer];
+          stadiumOwner.discard.push(store.stadium.card);
+          store.stadium = null;
+          discarded += 1;
+          appendLog(store, "Stadium was discarded.");
+        }
+        appendLog(store, `Discarded ${discarded} Tool(s)/Special Energy from opponent's Pokemon.`);
+        break;
+      }
+      case "opponent_hand_reveal_discard": {
+        // Needs selection UI — log as manual
+        const cardTypeDesc = effect.cardType ? ` ${effect.cardType}` : "";
+        appendLog(store, `Manual effect: Opponent reveals hand. Discard up to ${effect.count}${cardTypeDesc} card(s).`);
+        break;
+      }
       case "custom":
         appendLog(store, `Manual effect: ${effect.description}`);
         break;
@@ -612,9 +1152,9 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
         state: buildEngineState(store) as EngineGameState,
       });
       for (const log of result.logs) appendLog(store, log);
-      applyGenericEffects(store, store.currentTurn, defenderIdx, result.effects);
       syncFromEnginePokemon(attacker.active, engineAttacker);
       if (defender.active) syncFromEnginePokemon(defender.active, engineDefender);
+      applyGenericEffects(store, store.currentTurn, defenderIdx, result.effects);
       if (attacker.active.damage >= (attacker.active.base.card.hp ?? 0)) {
         resolveActiveKnockOut(store, store.currentTurn, prizesToTake(engineAttacker), " from self-damage");
         if (store.winner !== null) return;

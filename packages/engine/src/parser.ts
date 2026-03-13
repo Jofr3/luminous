@@ -352,6 +352,212 @@ export function parseEffectText(text: string | null): EffectAction[] {
     if (drawIdx !== -1) actions.splice(drawIdx, 1);
   }
 
+  // ---------------------------------------------------------------------------
+  // Trainer-specific effect patterns
+  // ---------------------------------------------------------------------------
+
+  // Judge: "Each player shuffles their hand into their deck and draws N cards"
+  const shuffleAllDrawMatch = text.match(/each player shuffles their hand into their deck and draws? (\d+) cards?/i);
+  if (shuffleAllDrawMatch) {
+    const count = parseInt(shuffleAllDrawMatch[1], 10);
+    actions.push({ type: "shuffle_all_draw", selfDraw: count, opponentDraw: count });
+    // Remove earlier draw/shuffle_hand_draw if present
+    for (let i = actions.length - 2; i >= 0; i--) {
+      if (actions[i].type === "draw" || actions[i].type === "shuffle_hand_draw") actions.splice(i, 1);
+    }
+  }
+
+  // Conditional shuffle-and-draw replacement:
+  // "Shuffle your hand into your deck. Then, draw N cards. If [condition], draw M cards instead."
+  const conditionalShuffleDrawMatch = text.match(
+    /shuffle your hand into your deck.*draw (\d+) cards?\.\s*(?:if|when) (.+?)(?:,|\.)\s*draw (\d+) cards? instead/i,
+  );
+  if (conditionalShuffleDrawMatch) {
+    actions.push({
+      type: "conditional_shuffle_draw",
+      defaultDraw: parseInt(conditionalShuffleDrawMatch[1], 10),
+      conditionalDraw: parseInt(conditionalShuffleDrawMatch[3], 10),
+      condition: conditionalShuffleDrawMatch[2].trim(),
+    });
+    for (let i = actions.length - 2; i >= 0; i--) {
+      if (actions[i].type === "draw" || actions[i].type === "shuffle_hand_draw" || actions[i].type === "conditional_draw") {
+        actions.splice(i, 1);
+      }
+    }
+  }
+
+  // Iono: "Each player shuffles their hand and puts it on the bottom of their deck"
+  if (/each player shuffles their hand and puts it on the bottom of their deck/i.test(text) && /draws? .* cards? for each of their remaining prize cards?/i.test(text)) {
+    actions.push({ type: "iono_effect" });
+    // Remove earlier draw if present
+    for (let i = actions.length - 2; i >= 0; i--) {
+      if (actions[i].type === "draw") actions.splice(i, 1);
+    }
+  }
+
+  // Draw until: "Draw cards until you have N cards in your hand"
+  const drawUntilMatch = text.match(/draw cards? until you have (\d+) cards? in your hand/i);
+  if (drawUntilMatch) {
+    actions.push({ type: "draw_until", player: "self", count: parseInt(drawUntilMatch[1], 10) });
+    // Remove earlier draw if present
+    for (let i = actions.length - 2; i >= 0; i--) {
+      if (actions[i].type === "draw") actions.splice(i, 1);
+    }
+  }
+
+  // Conditional draw: "Draw N cards. If [condition], draw N more cards"
+  const conditionalDrawMatch = text.match(/draw (\d+) cards?\..*(?:if|when) (.+?)(?:,|\.)\s*(?:you may )?draw (\d+) (?:more |additional )?cards?/i);
+  if (conditionalDrawMatch && !/draw \d+ cards? instead/i.test(text)) {
+    actions.push({
+      type: "conditional_draw",
+      baseDraw: parseInt(conditionalDrawMatch[1], 10),
+      bonusDraw: parseInt(conditionalDrawMatch[3], 10),
+      condition: conditionalDrawMatch[2].trim(),
+    });
+    // Remove earlier draw if present
+    for (let i = actions.length - 2; i >= 0; i--) {
+      if (actions[i].type === "draw") actions.splice(i, 1);
+    }
+  }
+
+  // Move energy: "Move up to N Energy from ... to ..."
+  const moveEnergyMatch = text.match(/move (?:up to )?(\d+) energy/i);
+  if (moveEnergyMatch && !/from your opponent/i.test(text)) {
+    const from: "any" | "bench" | "active" = /from.*bench/i.test(text) ? "bench" : "any";
+    const to: "any" | "active" = /to.*active/i.test(text) ? "active" : "any";
+    actions.push({ type: "move_energy", count: parseInt(moveEnergyMatch[1], 10), from, to });
+  }
+
+  // Scoop up (return Pokemon + attached to hand):
+  // Penny: "Put 1 of your Basic Pokémon ... and all attached cards into your hand"
+  // Scoop Up Cyclone: "Put 1 of your Pokémon ... and all attached cards into your hand"
+  if (/put (?:1|one) of your.*pok[eé]mon.*(?:and )?all attached cards into your hand/i.test(text)) {
+    const target: "basic" | "any" = /basic pok[eé]mon/i.test(text) ? "basic" : "any";
+    actions.push({ type: "scoop_up", target, keepAttached: true });
+  }
+  // Professor Turo style: "Put 1 of your Pokémon ... into your hand" + discard attached
+  else if (/put (?:1|one) of your.*pok[eé]mon.*into your hand.*discard all (?:cards )?attached/i.test(text)) {
+    actions.push({ type: "scoop_up", target: "any", keepAttached: false });
+  }
+
+  // Recover from discard to hand: "Put up to N ... from your discard pile into your hand"
+  const recoverHandMatch = text.match(/put (?:up to )?(\d+|a|an) (.+?) from your discard pile into your hand/i);
+  if (recoverHandMatch) {
+    const countStr = recoverHandMatch[1];
+    const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
+    const description = recoverHandMatch[2].toLowerCase();
+    let category: string | undefined;
+    let filter: string | undefined;
+    if (/basic energy/i.test(description)) { category = "Energy"; filter = "Basic Energy"; }
+    else if (/energy/i.test(description)) { category = "Energy"; }
+    else if (/pok[eé]mon/i.test(description)) { category = "Pokemon"; }
+    else if (/supporter/i.test(description)) { category = "Trainer"; filter = "Supporter"; }
+    else if (/item/i.test(description)) { category = "Trainer"; filter = "Item"; }
+    else { filter = description; }
+    actions.push({ type: "recover_from_discard", count, destination: "hand", category, filter });
+  }
+
+  // Shuffle from discard into deck: "Shuffle up to N ... from your discard pile into your deck"
+  const recoverDeckMatch = text.match(/shuffle (?:up to )?(\d+|a|an) (.+?) from your discard pile into your deck/i);
+  if (recoverDeckMatch) {
+    const countStr = recoverDeckMatch[1];
+    const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
+    const description = recoverDeckMatch[2].toLowerCase();
+    let category: string | undefined;
+    let filter: string | undefined;
+    if (/basic energy/i.test(description)) { category = "Energy"; filter = "Basic Energy"; }
+    else if (/energy/i.test(description)) { category = "Energy"; }
+    else if (/pok[eé]mon/i.test(description)) { category = "Pokemon"; }
+    else { filter = description; }
+    actions.push({ type: "recover_from_discard", count, destination: "deck", category, filter });
+  }
+
+  // Look at top N cards: "Look at the top N cards of your deck"
+  const lookAtTopMatch = text.match(/look at the top (\d+) cards? of your deck/i);
+  if (lookAtTopMatch) {
+    const count = parseInt(lookAtTopMatch[1], 10);
+    // Determine how many to take and the filter
+    const takeCountMatch = text.match(/(?:reveal|put|take) (?:up to )?(\d+|a|an) /i);
+    const takeCount = takeCountMatch ? (takeCountMatch[1] === "a" || takeCountMatch[1] === "an" ? 1 : parseInt(takeCountMatch[1], 10)) : 1;
+    let filter: string | undefined;
+    if (/pok[eé]mon/i.test(text) && !/supporter/i.test(text)) filter = "Pokemon";
+    else if (/supporter/i.test(text)) filter = "Supporter";
+    else if (/energy/i.test(text)) filter = "Energy";
+    const remainder: "shuffle_back" | "bottom" = /(?:shuffle|put).*(?:back|rest)/i.test(text) ? "shuffle_back" : "bottom";
+    actions.push({ type: "look_at_top", count, takeCount, filter, destination: "hand", remainder });
+  }
+
+  // Heal from each of your Pokemon: "Heal X damage from each of your Pokémon"
+  const trainerHealAllMatch = text.match(/heal (\d+) damage from each of your pok[eé]mon/i);
+  if (trainerHealAllMatch) {
+    actions.push({ type: "heal_all", amount: parseInt(trainerHealAllMatch[1], 10), target: "all_own" });
+    // Remove earlier generic heal if present
+    for (let i = actions.length - 2; i >= 0; i--) {
+      if (actions[i].type === "heal") actions.splice(i, 1);
+    }
+  }
+
+  // Heal from each of your type Pokemon: "Heal X damage from each of your {Type} Pokémon"
+  const trainerHealTypeMatch = text.match(/heal (\d+) damage from each of your \{?(\w+)\}? pok[eé]mon/i);
+  if (trainerHealTypeMatch && !trainerHealAllMatch) {
+    actions.push({ type: "heal_all", amount: parseInt(trainerHealTypeMatch[1], 10), target: "all_type", typeFilter: trainerHealTypeMatch[2] });
+    for (let i = actions.length - 2; i >= 0; i--) {
+      if (actions[i].type === "heal") actions.splice(i, 1);
+    }
+  }
+
+  // Heal from your Active Pokemon: "Heal X damage from your Active Pokémon"
+  const trainerHealActiveMatch = text.match(/heal (\d+) damage from your active pok[eé]mon/i);
+  if (trainerHealActiveMatch) {
+    actions.push({ type: "heal_target", amount: parseInt(trainerHealActiveMatch[1], 10), target: "active" });
+    // Remove earlier generic heal if present
+    for (let i = actions.length - 2; i >= 0; i--) {
+      if (actions[i].type === "heal") actions.splice(i, 1);
+    }
+  }
+
+  // Heal all damage from 1 Pokemon: "Heal all damage from 1 of your Pokémon"
+  if (/heal all damage from (?:1|one) of your pok[eé]mon/i.test(text)) {
+    actions.push({ type: "heal_target", amount: "all", target: "any" });
+    for (let i = actions.length - 2; i >= 0; i--) {
+      if (actions[i].type === "heal") actions.splice(i, 1);
+    }
+  }
+
+  // Heal from 1 of your Pokemon: "Heal X damage from 1 of your Pokémon"
+  const trainerHealAnyMatch = text.match(/heal (\d+) damage from (?:1|one) of your pok[eé]mon/i);
+  if (trainerHealAnyMatch && !trainerHealAllMatch) {
+    actions.push({ type: "heal_target", amount: parseInt(trainerHealAnyMatch[1], 10), target: "any" });
+    for (let i = actions.length - 2; i >= 0; i--) {
+      if (actions[i].type === "heal") actions.splice(i, 1);
+    }
+  }
+
+  // Discard Tools/Special Energy from opponent:
+  // Megaton Blower: "Discard all Pokémon Tools and Special Energy attached to your opponent's Pokémon"
+  if (/discard all pok[eé]mon tools?.*special energy.*opponent/i.test(text)) {
+    actions.push({ type: "discard_opponent_tool", count: 99, includeSpecialEnergy: true, includeStadium: /stadium/i.test(text) });
+  }
+  // Enhanced Hammer: "Discard a Special Energy attached to 1 of your opponent's Pokémon"
+  else if (/discard (?:a|1|one) special energy.*opponent/i.test(text)) {
+    actions.push({ type: "discard_opponent_tool", count: 1, includeSpecialEnergy: true, includeStadium: false });
+  }
+  // Tool Scrapper: "Choose up to N Pokémon Tools ... and discard them"
+  else if (/choose up to (\d+) pok[eé]mon tools?.*discard them/i.test(text)) {
+    const toolMatch = text.match(/choose up to (\d+)/i);
+    actions.push({ type: "discard_opponent_tool", count: toolMatch ? parseInt(toolMatch[1], 10) : 2, includeSpecialEnergy: false, includeStadium: false });
+  }
+
+  // Opponent hand reveal and discard: "your opponent reveals their hand. You may discard up to N [type] cards"
+  const opponentHandMatch = text.match(/opponent reveals their hand.*discard up to (\d+) (\w+) cards?/i);
+  if (opponentHandMatch) {
+    actions.push({
+      type: "opponent_hand_reveal_discard",
+      count: parseInt(opponentHandMatch[1], 10),
+      cardType: opponentHandMatch[2],
+    });
+  }
+
   // Discard cards from hand: "discard N cards from your hand"
   // (must be before search_deck so that "discard then search" cards execute in order)
   const discardCardMatch = text.match(/discard (\d+|a|an) (?:other )?cards? from your hand/i);
@@ -508,6 +714,270 @@ export function parseEffectText(text: string | null): EffectAction[] {
   if (/(?:isn'?t|not) affected by resistance/i.test(text) || /don'?t apply resistance/i.test(text)) {
     actions.push({ type: "ignore_resistance" });
   }
+
+  // ---------------------------------------------------------------------------
+  // Attack-specific effect patterns
+  // ---------------------------------------------------------------------------
+
+  // Flip until tails: "Flip a coin until you get tails. This attack does X more damage for each heads."
+  const flipUntilTailsMatch = text.match(/flip a coin until you get tails.*does (\d+) (?:more )?damage (?:for each|times|×|x) (?:the number of )?heads/i);
+  if (flipUntilTailsMatch) {
+    actions.push({
+      type: "flip_until_tails",
+      perHeads: [{ type: "damage", target: "defender", amount: parseInt(flipUntilTailsMatch[1], 10) }],
+    });
+  }
+
+  // Damage ignoring weakness/resistance/effects: "This attack's damage isn't affected by Weakness or Resistance"
+  if (/this attack'?s? damage isn'?t affected by weakness or resistance/i.test(text)) {
+    actions.push({ type: "damage_ignore_effects" });
+  }
+
+  // Before doing damage, discard all Pokemon Tools from opponent's Active Pokemon
+  if (/before doing damage.*discard all pok[eé]mon tools? from your opponent'?s? active/i.test(text)) {
+    actions.push({ type: "discard_tools_before_damage" });
+  }
+
+  // Copy attack: "Choose 1 of your opponent's Active Pokemon's attacks and use it as this attack"
+  if (/choose (?:1|one) of your opponent'?s? active pok[eé]mon'?s? attacks? and use it/i.test(text)) {
+    actions.push({ type: "copy_attack" });
+  }
+
+  // Self-evolve: "Search your deck for a card that evolves from this Pokemon and put it onto this Pokemon to evolve it"
+  if (/search your deck for a card that evolves from this pok[eé]mon.*put it onto this pok[eé]mon/i.test(text)) {
+    actions.push({ type: "self_evolve" });
+  }
+
+  // Deck mill: "Discard the top N cards of your opponent's deck"
+  const deckMillMatch = text.match(/discard the top (\d+) cards? of your opponent'?s? deck/i);
+  if (deckMillMatch) {
+    actions.push({ type: "deck_mill", count: parseInt(deckMillMatch[1], 10) });
+  }
+
+  // Discard opponent energy: "Discard an Energy from your opponent's Active Pokemon"
+  const discardOppEnergyMatch = text.match(/discard (\d+|an?) (?:(\w+) )?energy from your opponent'?s? active pok[eé]mon/i);
+  if (discardOppEnergyMatch) {
+    const countStr = discardOppEnergyMatch[1];
+    const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
+    actions.push({ type: "discard_opponent_energy", count, energyType: "any" });
+  }
+
+  // Hand disruption — random discard: "Discard a random card from your opponent's hand"
+  if (/discard a random card from your opponent'?s? hand/i.test(text)) {
+    actions.push({ type: "hand_disruption", mode: "random_discard", count: 1 });
+  }
+
+  // Hand disruption — opponent discards: "Your opponent discards N cards from their hand"
+  const oppDiscardMatch = text.match(/your opponent discards (\d+) cards? from their hand/i);
+  if (oppDiscardMatch) {
+    actions.push({ type: "hand_disruption", mode: "opponent_discards", count: parseInt(oppDiscardMatch[1], 10) });
+  }
+
+  // Opponent hand reveal+shuffle: "Choose a random card from opponent's hand. They reveal it and shuffle it into their deck."
+  if (/choose a random card from.*opponent'?s? hand.*reveal.*shuffle.*into their deck/i.test(text)) {
+    actions.push({ type: "opponent_hand_reveal_shuffle", count: 1 });
+  }
+
+  // Damage prevention from Basic Pokemon: "prevent all damage done to this Pokemon by attacks from Basic Pokemon"
+  if (/prevent all damage.*(?:done )?to this pok[eé]mon.*(?:by )?attacks from basic pok[eé]mon/i.test(text)) {
+    actions.push({ type: "damage_reduction", amount: 9999, turns: 1, fromBasicOnly: true });
+  }
+
+  // Damage reduction: "this Pokemon takes X less damage from attacks"
+  const dmgReductionMatch = text.match(/this pok[eé]mon takes (\d+) less damage from attacks/i);
+  if (dmgReductionMatch) {
+    actions.push({ type: "damage_reduction", amount: parseInt(dmgReductionMatch[1], 10), turns: 1 });
+  }
+
+  // Item lock: "they can't play any Item cards from their hand"
+  if (/(?:opponent'?s?|they) can'?t play (?:any )?item cards? from their hand/i.test(text)) {
+    actions.push({ type: "item_lock", turns: 1 });
+  }
+
+  // Damage per energy on both active: "X more damage for each Energy attached to both Active Pokemon"
+  const dmgPerEnergyBothMatch = text.match(/does (\d+) more damage for each energy attached to both active pok[eé]mon/i);
+  if (dmgPerEnergyBothMatch) {
+    actions.push({ type: "damage_per_energy", amount: parseInt(dmgPerEnergyBothMatch[1], 10), source: "both" });
+  }
+  // Damage per energy on opponent: "X more damage for each Energy attached to your opponent's Active Pokemon"
+  else {
+    const dmgPerEnergyOppMatch = text.match(/does (\d+) more damage for each energy attached to your opponent'?s? active pok[eé]mon/i);
+    if (dmgPerEnergyOppMatch) {
+      actions.push({ type: "damage_per_energy", amount: parseInt(dmgPerEnergyOppMatch[1], 10), source: "defender" });
+    }
+  }
+
+  // Damage for each energy attached to this Pokemon: "does X damage for each Energy attached to this Pokemon"
+  const dmgForEachEnergySelfMatch = text.match(/does (\d+) damage for each energy attached to this pok[eé]mon/i);
+  if (dmgForEachEnergySelfMatch) {
+    actions.push({ type: "damage_per_energy", amount: parseInt(dmgForEachEnergySelfMatch[1], 10), source: "self" });
+  }
+
+  // Damage for specific energy type: "X more damage for each {W} Energy attached to this Pokemon"
+  const dmgForEnergyTypeMatch = text.match(/does (\d+) more damage for each \{(\w)\} energy attached to this pok[eé]mon/i);
+  if (dmgForEnergyTypeMatch) {
+    const energyMap: Record<string, EnergyType> = { G: "Grass", R: "Fire", W: "Water", L: "Lightning", P: "Psychic", F: "Fighting", D: "Darkness", M: "Metal", Y: "Fairy", N: "Dragon", C: "Colorless" };
+    const eType = energyMap[dmgForEnergyTypeMatch[2].toUpperCase()] ?? "Colorless";
+    actions.push({ type: "damage_for_energy_type", amount: parseInt(dmgForEnergyTypeMatch[1], 10), energyType: eType });
+  }
+
+  // Damage per damage counter on self: "X damage/more for each damage counter on this Pokemon"
+  const dmgPerCounterSelfMatch = text.match(/does (\d+) (?:more )?damage for each damage counter on this pok[eé]mon/i);
+  if (dmgPerCounterSelfMatch) {
+    actions.push({ type: "damage_per_damage_counter", amount: parseInt(dmgPerCounterSelfMatch[1], 10), source: "self" });
+  }
+
+  // Damage less for each damage counter on self: "X less damage for each damage counter on this Pokemon"
+  const dmgLessPerCounterMatch = text.match(/does (\d+) less damage for each damage counter on this pok[eé]mon/i);
+  if (dmgLessPerCounterMatch) {
+    actions.push({ type: "damage_per_damage_counter", amount: -parseInt(dmgLessPerCounterMatch[1], 10), source: "self" });
+  }
+
+  // Damage per damage counter on opponent: "X more damage for each damage counter on your opponent's Active Pokemon"
+  const dmgPerCounterOppMatch = text.match(/does (\d+) (?:more )?damage for each damage counter on your opponent'?s? active pok[eé]mon/i);
+  if (dmgPerCounterOppMatch) {
+    actions.push({ type: "damage_per_damage_counter", amount: parseInt(dmgPerCounterOppMatch[1], 10), source: "defender" });
+  }
+
+  // Damage per bench — opponent: "X more damage for each of your opponent's Benched Pokemon"
+  const dmgPerBenchOppMatch = text.match(/does (\d+) more damage for each of your opponent'?s? benched pok[eé]mon/i);
+  if (dmgPerBenchOppMatch) {
+    actions.push({ type: "damage_per_bench", amount: parseInt(dmgPerBenchOppMatch[1], 10), whose: "opponent" });
+  }
+
+  // Damage per bench — both: "X more damage for each Benched Pokemon (both yours and your opponent's)"
+  const dmgPerBenchBothMatch = text.match(/does (\d+) more damage for each benched pok[eé]mon.*both/i);
+  if (dmgPerBenchBothMatch) {
+    actions.push({ type: "damage_per_bench", amount: parseInt(dmgPerBenchBothMatch[1], 10), whose: "both" });
+  }
+
+  // Conditional damage — ex or V: "If your opponent's Active Pokemon is a Pokemon ex or Pokemon V, this attack does X more damage"
+  const condDmgExVMatch = text.match(/opponent'?s? active pok[eé]mon is a pok[eé]mon ex or pok[eé]mon v.*does (\d+) more damage/i);
+  if (condDmgExVMatch) {
+    actions.push({ type: "conditional_damage", amount: parseInt(condDmgExVMatch[1], 10), condition: "ex_or_v" });
+  }
+
+  // Conditional damage — has damage counters: "If opponent's Active Pokemon already has any damage counters, X more damage"
+  const condDmgHasDamageMatch = text.match(/opponent'?s? active pok[eé]mon (?:already )?has (?:any )?damage counters?.*does (\d+) more damage/i);
+  if (condDmgHasDamageMatch) {
+    actions.push({ type: "conditional_damage", amount: parseInt(condDmgHasDamageMatch[1], 10), condition: "has_damage" });
+  }
+
+  // Conditional damage — has special condition: "If opponent's Active Pokemon is affected by a Special Condition, X more damage"
+  const condDmgSpecCondMatch = text.match(/opponent'?s? active pok[eé]mon is affected by a special condition.*does (\d+) more damage/i);
+  if (condDmgSpecCondMatch) {
+    actions.push({ type: "conditional_damage", amount: parseInt(condDmgSpecCondMatch[1], 10), condition: "has_special_condition" });
+  }
+
+  // Bench snipe — opponent: "This attack does X damage to 1 of your opponent's Pokemon"
+  const benchSnipeMatch = text.match(/this attack does (\d+) damage to (?:1|one) of your opponent'?s? pok[eé]mon/i);
+  if (benchSnipeMatch) {
+    actions.push({ type: "bench_snipe", amount: parseInt(benchSnipeMatch[1], 10), whose: "opponent" });
+  }
+
+  // Bench snipe via "also does X damage to 1 of your opponent's Benched Pokemon"
+  const benchSnipeAlsoMatch = text.match(/also does (\d+) damage to (?:1|one) of your opponent'?s? benched pok[eé]mon/i);
+  if (benchSnipeAlsoMatch) {
+    actions.push({ type: "bench_snipe", amount: parseInt(benchSnipeAlsoMatch[1], 10), whose: "opponent" });
+  }
+
+  // Bench snipe — spread to opponent bench: "also does X damage to each of opponent's Benched Pokemon"
+  const spreadOppBenchMatch = text.match(/also does (\d+) damage to each of (?:your )?opponent'?s? benched pok[eé]mon/i);
+  if (spreadOppBenchMatch) {
+    actions.push({ type: "damage", target: "bench", amount: parseInt(spreadOppBenchMatch[1], 10) });
+  }
+
+  // Self bench damage: "also does X damage to each of your Benched Pokemon"
+  const selfBenchDmgMatch = text.match(/also does (\d+) damage to (?:each of )?your benched pok[eé]mon/i);
+  if (selfBenchDmgMatch) {
+    actions.push({ type: "bench_damage_self", amount: parseInt(selfBenchDmgMatch[1], 10) });
+  }
+
+  // Self condition — confused: "This Pokemon is now Confused"
+  if (/this pok[eé]mon is now confused/i.test(text)) {
+    actions.push({ type: "self_condition", condition: "Confused" });
+  }
+
+  // Self condition — recover all: "This Pokemon recovers from all Special Conditions"
+  if (/this pok[eé]mon recovers from all special conditions/i.test(text)) {
+    actions.push({ type: "self_condition", condition: "recover_all" });
+  }
+
+  // Damage for retreat cost: "X more damage for each {C} in opponent's Active Pokemon's Retreat Cost"
+  const dmgRetreatMatch = text.match(/does (\d+) more damage for each \{C\} in (?:your )?opponent'?s? active pok[eé]mon'?s? retreat cost/i);
+  if (dmgRetreatMatch) {
+    actions.push({ type: "damage_for_retreat_cost", amount: parseInt(dmgRetreatMatch[1], 10) });
+  }
+
+  // Damage per tool: "X damage for each Pokemon Tool attached to all of your Pokemon"
+  const dmgPerToolMatch = text.match(/does (\d+) damage for each pok[eé]mon tool attached to (?:all of )?your pok[eé]mon/i);
+  if (dmgPerToolMatch) {
+    actions.push({ type: "damage_per_tool", amount: parseInt(dmgPerToolMatch[1], 10) });
+  }
+
+  // Damage per prize taken by opponent: "X damage for each Prize card your opponent has taken"
+  const dmgPerPrizeMatch = text.match(/does (\d+) damage for each prize card your opponent has taken/i);
+  if (dmgPerPrizeMatch) {
+    actions.push({ type: "damage_per_prize", amount: parseInt(dmgPerPrizeMatch[1], 10), whose: "opponent" });
+  }
+
+  // Discard stadium (conditional for extra damage): "You may discard a Stadium in play. If you do, this attack does X more damage"
+  const discardStadiumDmgMatch = text.match(/you may discard a stadium in play.*does (\d+) more damage/i);
+  if (discardStadiumDmgMatch) {
+    actions.push({ type: "discard_stadium", conditional: true });
+    actions.push({ type: "conditional_stadium_damage", amount: parseInt(discardStadiumDmgMatch[1], 10) });
+  }
+  // Discard stadium (plain): "You may discard a Stadium in play"
+  else if (/you may discard a stadium in play/i.test(text)) {
+    actions.push({ type: "discard_stadium", conditional: false });
+  }
+
+  // Return energy to hand: "Put N Energy attached to this Pokemon into your hand"
+  const returnEnergyMatch = text.match(/put (\d+|an?) energy attached to this pok[eé]mon into your hand/i);
+  if (returnEnergyMatch) {
+    const countStr = returnEnergyMatch[1];
+    const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
+    actions.push({ type: "return_energy_to_hand", count });
+  }
+
+  // Bounce self to hand: "Put this Pokemon and all attached cards into your hand"
+  if (/put this pok[eé]mon and all attached cards into your hand/i.test(text)) {
+    actions.push({ type: "bounce_self_to_hand" });
+  }
+
+  // Heal equal to damage dealt: "Heal from this Pokemon the same amount of damage you did"
+  if (/heal.*(?:from )?this pok[eé]mon.*(?:the )?same amount of damage/i.test(text)) {
+    actions.push({ type: "heal_equal_to_damage" });
+  }
+
+  // Extra prize: "take N more Prize card(s)"
+  const extraPrizeMatch = text.match(/take (\d+) more prize cards?/i);
+  if (extraPrizeMatch) {
+    actions.push({ type: "extra_prize", count: parseInt(extraPrizeMatch[1], 10) });
+  }
+
+  // Flip a coin, tails can't attack: "Flip a coin. If tails, during your next turn, this Pokemon can't attack"
+  if (/flip a coin.*if tails.*(?:during your next turn.*)?(?:this pok[eé]mon )?can'?t attack/i.test(text) && !lower.includes("does nothing")) {
+    // Don't duplicate if we already matched the simpler coin_flip pattern
+    if (!actions.some(a => a.type === "coin_flip")) {
+      actions.push({ type: "cant_attack_self_tails" });
+    }
+  }
+
+  // Discard hand and draw (attack version): "Discard your hand and draw N cards"
+  // Already handled above in the trainer section
+
+  // Switch both: "Switch this Pokemon with 1 of your Benched Pokemon. If you do, switch out opponent's Active to Bench."
+  // Already handled by self-switch above; opponent switch is additional
+  if (/switch this pok[eé]mon.*benched.*switch.*opponent'?s? active/i.test(text)) {
+    // Self switch already matched above; ensure opponent switch too
+    if (!actions.some(a => a.type === "switch_pokemon" && a.player === "opponent")) {
+      actions.push({ type: "switch_pokemon", player: "opponent" });
+    }
+  }
+
+  // Search deck for supporter: "Search your deck for a Supporter card, reveal it, and put it into your hand"
+  // Already handled by the generic search_deck pattern above
 
   // If no patterns matched, create a custom action with the full text
   if (actions.length === 0 && text.trim().length > 0) {

@@ -6,6 +6,7 @@
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
+    "test": "bun test",
     "typecheck": "turbo typecheck",
     "clean": "turbo clean"
   },

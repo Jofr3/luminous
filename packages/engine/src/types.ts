@@ -206,4 +206,47 @@ export type EffectAction =
     type: "stadium_fossil_evolution";
     count: number;
     endsTurn: boolean;
-  };
+  }
+  | { type: "damage_per_energy"; amount: number; source: "self" | "defender" | "both" }
+  | { type: "damage_per_damage_counter"; amount: number; source: "self" | "defender" }
+  | { type: "damage_per_bench"; amount: number; whose: "self" | "opponent" | "both" }
+  | { type: "conditional_damage"; amount: number; condition: "ex_or_v" | "has_damage" | "has_special_condition" }
+  | { type: "bench_snipe"; amount: number; whose: "opponent" }
+  | { type: "self_condition"; condition: SpecialCondition | "recover_all" }
+  | { type: "deck_mill"; count: number }
+  | { type: "hand_disruption"; mode: "random_discard" | "opponent_discards"; count: number }
+  | { type: "damage_reduction"; amount: number; turns: number; fromBasicOnly?: boolean }
+  | { type: "item_lock"; turns: number }
+  | { type: "copy_attack" }
+  | { type: "self_evolve" }
+  | { type: "discard_opponent_energy"; count: number; energyType?: EnergyType | "any" }
+  | { type: "damage_for_retreat_cost"; amount: number }
+  | { type: "discard_stadium"; conditional?: boolean }
+  | { type: "return_energy_to_hand"; count: number }
+  | { type: "flip_until_tails"; perHeads: EffectAction[] }
+  | { type: "bench_damage_self"; amount: number }
+  | { type: "damage_ignore_effects"; }
+  | { type: "discard_tools_before_damage" }
+  | { type: "conditional_stadium_damage"; amount: number }
+  | { type: "extra_prize"; count: number }
+  | { type: "bounce_self_to_hand" }
+  | { type: "heal_equal_to_damage" }
+  | { type: "damage_per_tool"; amount: number }
+  | { type: "damage_per_prize"; amount: number; whose: "opponent" }
+  | { type: "damage_for_energy_type"; amount: number; energyType: EnergyType }
+  | { type: "opponent_hand_reveal_shuffle"; count: number }
+  | { type: "cant_attack_self_tails"; }
+  // --- Trainer-specific effect types ---
+  | { type: "shuffle_all_draw"; selfDraw: number; opponentDraw: number }
+  | { type: "iono_effect" }
+  | { type: "conditional_shuffle_draw"; defaultDraw: number; conditionalDraw: number; condition: string }
+  | { type: "draw_until"; player: "self"; count: number }
+  | { type: "conditional_draw"; baseDraw: number; bonusDraw: number; condition: string }
+  | { type: "move_energy"; count: number; from: "any" | "bench" | "active"; to: "any" | "active" }
+  | { type: "scoop_up"; target: "basic" | "any"; keepAttached: boolean }
+  | { type: "recover_from_discard"; count: number; destination: "hand" | "deck"; category?: string; filter?: string }
+  | { type: "look_at_top"; count: number; takeCount: number; filter?: string; destination: "hand"; remainder: "shuffle_back" | "bottom" }
+  | { type: "heal_all"; amount: number; target: "all_own" | "all_type"; typeFilter?: string }
+  | { type: "heal_target"; amount: number | "all"; target: "active" | "any" }
+  | { type: "discard_opponent_tool"; count: number; includeSpecialEnergy: boolean; includeStadium: boolean }
+  | { type: "opponent_hand_reveal_discard"; count: number; cardType?: string };
