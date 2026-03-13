@@ -1,6 +1,19 @@
 import type { CardInstance, GameState, PlayerBoard, PokemonInPlay, EffectAction } from "./types";
 import { parseEffectText } from "./parser";
 
+function checkPlayConditions(effects: EffectAction[], state: GameState, playerIdx: 0 | 1): string | null {
+  const opponentIdx = (playerIdx === 0 ? 1 : 0) as 0 | 1;
+  for (const effect of effects) {
+    if (effect.type === "play_condition" && effect.condition === "opponent_prizes") {
+      const opponentPrizes = state.players[opponentIdx].prizes.length;
+      if (effect.exact && opponentPrizes !== effect.count) {
+        return `Can only be played when your opponent has exactly ${effect.count} Prize card(s) remaining (they have ${opponentPrizes}).`;
+      }
+    }
+  }
+  return null;
+}
+
 export interface TrainerPlayResult {
   valid: boolean;
   reason?: string;
@@ -35,6 +48,13 @@ export function canPlayTrainer(
     if (state.stadium.card.card.name === data.name && state.stadium.playedByPlayer === playerIdx) {
       return { allowed: false, reason: "A Stadium with the same name is already in play (played by you)." };
     }
+  }
+
+  // Check card-specific play conditions from effect text
+  const effects = parseEffectText(data.effect);
+  const conditionError = checkPlayConditions(effects, state, playerIdx);
+  if (conditionError) {
+    return { allowed: false };
   }
 
   // Tools: must have a target Pokemon without a tool

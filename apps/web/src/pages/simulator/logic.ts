@@ -85,6 +85,12 @@ export function canEvolvePokemon(
 ): { ok: boolean; reason?: string } {
   if (!isEvolutionPokemon(evoCard))
     return { ok: false, reason: `${evoCard.name} is not an evolution card.` };
+  // Stage validation: Stage 1 can only evolve from Basic, Stage 2 can only evolve from Stage 1
+  const targetStage = target.base.card.stage;
+  if (evoCard.stage === "Stage1" && targetStage !== "Basic")
+    return { ok: false, reason: `${evoCard.name} (Stage 1) can only evolve from a Basic Pokemon.` };
+  if (evoCard.stage === "Stage2" && targetStage !== "Stage1")
+    return { ok: false, reason: `${evoCard.name} (Stage 2) can only evolve from a Stage 1 Pokemon, not ${targetStage}.` };
   // If evolve_from is known, validate the name match
   if (evoCard.evolve_from && evoCard.evolve_from !== target.base.card.name)
     return { ok: false, reason: `${evoCard.name} evolves from ${evoCard.evolve_from}, not ${target.base.card.name}.` };

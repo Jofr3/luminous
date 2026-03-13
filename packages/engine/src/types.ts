@@ -183,4 +183,5 @@ export type EffectAction =
   | { type: "energy_accelerate"; source: "deck" | "discard" | "hand"; count: number; energyType?: EnergyType | "any" }
   | { type: "bounce"; target: "defender" | "self"; destination: "hand" | "deck" }
   | { type: "discard_card"; source: "hand" | "field"; count: number }
-  | { type: "custom"; description: string };
+  | { type: "custom"; description: string }
+  | { type: "play_condition"; condition: "opponent_prizes"; count: number; exact: boolean };

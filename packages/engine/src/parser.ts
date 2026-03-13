@@ -153,6 +153,12 @@ export function parseEffectText(text: string | null): EffectAction[] {
   const actions: EffectAction[] = [];
   const lower = text.toLowerCase();
 
+  // Play condition: "You can use this card only if your opponent has exactly N Prize card(s) remaining"
+  const prizeCondMatch = text.match(/you can use this card only if your opponent has exactly (\d+) prize cards? remaining/i);
+  if (prizeCondMatch) {
+    actions.push({ type: "play_condition", condition: "opponent_prizes", count: parseInt(prizeCondMatch[1], 10), exact: true });
+  }
+
   const buddyBuddyPoffinMatch = text.match(
     /search your deck for up to (\d+) Basic Pok[eé]mon with (\d+) HP or less and put them onto your Bench/i,
   );
@@ -289,6 +295,15 @@ export function parseEffectText(text: string | null): EffectAction[] {
     if (drawIdx !== -1) actions.splice(drawIdx, 1);
   }
 
+  // Discard cards from hand: "discard N cards from your hand"
+  // (must be before search_deck so that "discard then search" cards execute in order)
+  const discardCardMatch = text.match(/discard (\d+|a|an) (?:other )?cards? from your hand/i);
+  if (discardCardMatch) {
+    const countStr = discardCardMatch[1];
+    const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
+    actions.push({ type: "discard_card", source: "hand", count });
+  }
+
   // Search deck
   const searchMatch = text.match(/search your deck for (?:up to )?(\d+|a|an|any number of) /i);
   if (searchMatch) {
@@ -398,13 +413,6 @@ export function parseEffectText(text: string | null): EffectAction[] {
     actions.push({ type: "bounce", target: "defender", destination: "deck" });
   }
 
-  // Discard cards from hand: "discard N cards from your hand"
-  const discardCardMatch = text.match(/discard (\d+|a|an) (?:other )?cards? from your hand/i);
-  if (discardCardMatch) {
-    const countStr = discardCardMatch[1];
-    const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
-    actions.push({ type: "discard_card", source: "hand", count });
-  }
 
   // Put damage counters on opponent's Benched Pokemon (1 counter = 10 damage)
   const dmgCounterBenchMatch = text.match(/put (\d+) damage counters? on (?:(?:1|one|each) of )?your opponent'?s? benched pok[eé]mon/i);
