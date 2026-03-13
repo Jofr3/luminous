@@ -24,6 +24,7 @@ import {
 } from "./engine-bridge";
 import {
   parseDamage,
+  parseEffectText,
   validateAttack,
   resolveAttack,
   prizesToTake,
@@ -282,6 +283,12 @@ function matchesDeckSearchFilter(card: CardInstance, effect: Extract<EffectActio
   if (effect.stage && card.card.stage !== effect.stage) {
     return false;
   }
+  if (effect.trainerType && card.card.trainer_type !== effect.trainerType) {
+    return false;
+  }
+  if (effect.suffix && card.card.suffix !== effect.suffix) {
+    return false;
+  }
   if (effect.maxHp != null) {
     const hp = card.card.hp ?? Infinity;
     if (hp > effect.maxHp) {
@@ -296,14 +303,19 @@ function matchesDeckSearchFilter(card: CardInstance, effect: Extract<EffectActio
   if (filterLower.includes("pokemon") && card.card.category !== "Pokemon") return false;
   if (filterLower.includes("energy") && card.card.category !== "Energy") return false;
   if (filterLower.includes("trainer") && card.card.category !== "Trainer") return false;
+  // "Evolution Pokemon" — must not be Basic
+  if (filterLower.includes("evolution") && card.card.stage === "Basic") return false;
 
   return true;
 }
 
 function queueDeckSearchPrompt(
   store: SimulatorStore,
+  actorIdx: 0 | 1,
+  opponentIdx: 0 | 1,
   playerIdx: 0 | 1,
   effect: Extract<EffectAction, { type: "search_deck" }>,
+  remainingEffects: EffectAction[],
 ): boolean {
   const player = store.players[playerIdx];
   const destination = effect.destination ?? "hand";
@@ -325,8 +337,11 @@ function queueDeckSearchPrompt(
   }
 
   store.pendingDeckSearch = {
+    actorIdx,
+    opponentIdx,
     playerIdx,
     count,
+    minCount: effect.minCount ?? 0,
     destination,
     candidateUids: candidates.map((card) => card.uid),
     selectedUids: [],
@@ -335,8 +350,42 @@ function queueDeckSearchPrompt(
       destination === "bench"
         ? `Choose up to ${count} valid card(s) to put onto your Bench.`
         : `Choose up to ${count} valid card(s) to put into your hand.`,
+    remainingEffects,
   };
   appendLog(store, `P${playerIdx + 1} is searching their deck.`);
+  return true;
+}
+
+function queueHandSelectionPrompt(
+  store: SimulatorStore,
+  actorIdx: 0 | 1,
+  opponentIdx: 0 | 1,
+  playerIdx: 0 | 1,
+  effect: Extract<EffectAction, { type: "discard_card" }>,
+  remainingEffects: EffectAction[],
+): boolean {
+  const player = store.players[playerIdx];
+  if (effect.source !== "hand") {
+    appendLog(store, `Unsupported discard_card source: ${effect.source}.`);
+    return false;
+  }
+  if (player.hand.length < effect.count) {
+    appendLog(store, `P${playerIdx + 1} does not have enough cards in hand.`);
+    return true;
+  }
+  store.pendingHandSelection = {
+    actorIdx,
+    opponentIdx,
+    playerIdx,
+    count: effect.count,
+    minCount: effect.count,
+    candidateUids: player.hand.map((card) => card.uid),
+    selectedUids: [],
+    title: "Choose Cards to Discard",
+    instruction: `Choose ${effect.count} card(s) from your hand to discard.`,
+    remainingEffects,
+  };
+  appendLog(store, `P${playerIdx + 1} must choose ${effect.count} card(s) to discard.`);
   return true;
 }
 
@@ -349,7 +398,9 @@ function applyGenericEffects(
   const actor = store.players[actorIdx];
   const opponent = store.players[opponentIdx];
 
-  for (const effect of effects) {
+  for (let effectIndex = 0; effectIndex < effects.length; effectIndex += 1) {
+    const effect = effects[effectIndex];
+    const remainingEffects = effects.slice(effectIndex + 1);
     switch (effect.type) {
       case "coin_flip": {
         const result = Math.random() < 0.5 ? "Heads" : "Tails";
@@ -509,23 +560,12 @@ function applyGenericEffects(
           appendLog(store, `P${searchPlayerIdx + 1} has no cards in deck to search.`);
           break;
         }
-        queueDeckSearchPrompt(store, searchPlayerIdx, effect);
-        break;
+        queueDeckSearchPrompt(store, actorIdx, opponentIdx, searchPlayerIdx, effect, remainingEffects);
+        return;
       }
       case "discard_card": {
-        if (effect.source === "hand") {
-          let remaining = effect.count;
-          while (remaining > 0 && actor.hand.length > 0) {
-            const discarded = actor.hand.pop();
-            if (!discarded) break;
-            actor.discard.push(discarded);
-            remaining -= 1;
-          }
-          appendLog(store, `P${actorIdx + 1} discarded ${effect.count - remaining} card(s) from hand.`);
-        } else {
-          appendLog(store, `Unsupported discard_card source: ${effect.source}.`);
-        }
-        break;
+        queueHandSelectionPrompt(store, actorIdx, opponentIdx, actorIdx, effect, remainingEffects);
+        return;
       }
       case "multi_coin_flip": {
         let heads = 0;
@@ -617,6 +657,7 @@ export function useSimulatorActions(withStore: WithStore): {
       store.selectedPrizeUid = [null, null];
       store.selectedHandUid = [null, null];
       store.stadium = null;
+      store.pendingHandSelection = null;
       store.pendingDeckSearch = null;
       store.turnNumber = 0;
       store.phase = "setup";
@@ -831,6 +872,14 @@ export function useSimulatorActions(withStore: WithStore): {
       return;
     }
 
+    const discardCosts = (engineCard.card.effect ? parseEffectText(engineCard.card.effect) : [])
+      .filter((effect: EffectAction): effect is Extract<EffectAction, { type: "discard_card" }> => effect.type === "discard_card" && effect.source === "hand");
+    const requiredDiscardCount = discardCosts.reduce((sum: number, effect) => sum + effect.count, 0);
+    if (requiredDiscardCount > 0 && player.hand.length - 1 < requiredDiscardCount) {
+      appendLog(store, `${card.name} requires discarding ${requiredDiscardCount} other card(s) from hand.`);
+      return;
+    }
+
     const playedCard = removeHandCard(player, uid);
     if (!playedCard) return;
 
@@ -871,9 +920,46 @@ export function useSimulatorActions(withStore: WithStore): {
     pending.selectedUids = [...selected];
   }, { history: "skip" });
 
+  const toggleHandSelectionCard = withStore((store, uid: string) => {
+    const pending = store.pendingHandSelection;
+    if (!pending) return;
+    if (!pending.candidateUids.includes(uid)) return;
+
+    const selected = new Set(pending.selectedUids);
+    if (selected.has(uid)) {
+      selected.delete(uid);
+    } else if (selected.size < pending.count) {
+      selected.add(uid);
+    }
+    pending.selectedUids = [...selected];
+  }, { history: "skip" });
+
+  const confirmHandSelection = withStore((store) => {
+    const pending = store.pendingHandSelection;
+    if (!pending) return;
+    if (pending.selectedUids.length < pending.minCount) return;
+
+    const player = store.players[pending.playerIdx];
+    let discarded = 0;
+    for (const uid of pending.selectedUids) {
+      const card = removeHandCard(player, uid);
+      if (!card) continue;
+      player.discard.push(card);
+      discarded += 1;
+    }
+
+    appendLog(store, `P${pending.playerIdx + 1} discarded ${discarded} card(s) from hand.`);
+    const remainingEffects = pending.remainingEffects;
+    const actorIdx = pending.actorIdx;
+    const opponentIdx = pending.opponentIdx;
+    store.pendingHandSelection = null;
+    applyGenericEffects(store, actorIdx, opponentIdx, remainingEffects);
+  }, { history: "replace" });
+
   const confirmDeckSearch = withStore((store) => {
     const pending = store.pendingDeckSearch;
     if (!pending) return;
+    if (pending.selectedUids.length < pending.minCount) return;
 
     const player = store.players[pending.playerIdx];
     const selectedCards: CardInstance[] = [];
@@ -899,12 +985,17 @@ export function useSimulatorActions(withStore: WithStore): {
     }
 
     player.deck = shuffle(player.deck);
+    const remainingEffects = pending.remainingEffects;
+    const actorIdx = pending.actorIdx;
+    const opponentIdx = pending.opponentIdx;
     store.pendingDeckSearch = null;
+    applyGenericEffects(store, actorIdx, opponentIdx, remainingEffects);
   }, { history: "replace" });
 
   const cancelDeckSearch = withStore((store) => {
     const pending = store.pendingDeckSearch;
     if (!pending) return;
+    if (pending.minCount > 0) return;
 
     const player = store.players[pending.playerIdx];
     player.deck = shuffle(player.deck);
@@ -1300,6 +1391,8 @@ export function useSimulatorActions(withStore: WithStore): {
       useAttack,
       useAbility,
       playTrainerCard,
+      toggleHandSelectionCard,
+      confirmHandSelection,
       toggleDeckSearchCard,
       confirmDeckSearch,
       cancelDeckSearch,

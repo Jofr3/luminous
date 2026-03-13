@@ -32,13 +32,30 @@ export interface StadiumInPlay {
 }
 
 export interface PendingDeckSearch {
+  actorIdx: 0 | 1;
+  opponentIdx: 0 | 1;
   playerIdx: 0 | 1;
   count: number;
+  minCount: number;
   destination: "hand" | "bench";
   candidateUids: string[];
   selectedUids: string[];
   title: string;
   instruction: string;
+  remainingEffects: import("@luminous/engine").EffectAction[];
+}
+
+export interface PendingHandSelection {
+  actorIdx: 0 | 1;
+  opponentIdx: 0 | 1;
+  playerIdx: 0 | 1;
+  count: number;
+  minCount: number;
+  candidateUids: string[];
+  selectedUids: string[];
+  title: string;
+  instruction: string;
+  remainingEffects: import("@luminous/engine").EffectAction[];
 }
 
 export interface DragPayload {
@@ -74,6 +91,8 @@ export interface SimulatorActions {
   useAttack: (attackIdx: number) => Promise<void>;
   useAbility: (pokemonUid: string, abilityIdx: number) => Promise<void>;
   playTrainerCard: (uid: string) => Promise<void>;
+  toggleHandSelectionCard: (uid: string) => Promise<void>;
+  confirmHandSelection: () => Promise<void>;
   toggleDeckSearchCard: (uid: string) => Promise<void>;
   confirmDeckSearch: () => Promise<void>;
   cancelDeckSearch: () => Promise<void>;
@@ -100,6 +119,7 @@ export interface SimulatorStore {
   logs: string[];
   players: [PlayerBoard, PlayerBoard];
   stadium: StadiumInPlay | null;
+  pendingHandSelection: PendingHandSelection | null;
   pendingDeckSearch: PendingDeckSearch | null;
   gameStarted: boolean;
 }

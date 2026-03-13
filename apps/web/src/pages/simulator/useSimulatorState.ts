@@ -8,6 +8,7 @@ const MAX_HISTORY = 200;
 /** Backfill fields added after v1 so old localStorage data doesn't crash */
 function migrateStore(store: SimulatorStore): SimulatorStore {
   store.stadium ??= null;
+  store.pendingHandSelection ??= null;
   store.pendingDeckSearch ??= null;
   store.gameStarted ??= store.phase !== "idle";
   for (const player of store.players) {

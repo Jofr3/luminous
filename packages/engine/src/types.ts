@@ -171,9 +171,12 @@ export type EffectAction =
     player: "self";
     filter?: string;
     count: number;
+    minCount?: number;
     destination?: "hand" | "bench";
     category?: CardCategory;
     stage?: Stage;
+    trainerType?: TrainerType;
+    suffix?: string;
     maxHp?: number;
   }
   | { type: "shuffle_hand_draw"; player: "self" | "opponent"; drawCount: number }

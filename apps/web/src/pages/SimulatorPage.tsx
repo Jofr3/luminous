@@ -25,6 +25,7 @@ function createInitialStore(): SimulatorStore {
     logs: [],
     players: [createEmptyPlayer(), createEmptyPlayer()],
     stadium: null,
+    pendingHandSelection: null,
     pendingDeckSearch: null,
     gameStarted: false,
   };

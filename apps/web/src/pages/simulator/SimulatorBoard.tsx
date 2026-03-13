@@ -63,7 +63,12 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
   const currentPlayer = store.players[store.currentTurn];
   const selectedUid = store.selectedHandUid[store.currentTurn];
   const active = currentPlayer.active;
+  const pendingHandSelection = store.pendingHandSelection;
   const pendingDeckSearch = store.pendingDeckSearch;
+  const pendingHandCards = pendingHandSelection
+    ? store.players[pendingHandSelection.playerIdx].hand.filter((card) =>
+      pendingHandSelection.candidateUids.includes(card.uid))
+    : [];
   const pendingCards = pendingDeckSearch
     ? store.players[pendingDeckSearch.playerIdx].deck.filter((card) =>
       pendingDeckSearch.candidateUids.includes(card.uid))
@@ -285,6 +290,49 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
             )}
           </div>
         </aside>
+        {pendingHandSelection && (
+          <div className="deck-search-modal" role="dialog" aria-modal="true" aria-label={pendingHandSelection.title}>
+            <div className="deck-search-modal__panel">
+              <div className="deck-search-modal__header">
+                <div>
+                  <h2>{pendingHandSelection.title}</h2>
+                  <p>{pendingHandSelection.instruction}</p>
+                </div>
+                <span className="deck-search-modal__count">
+                  {pendingHandSelection.selectedUids.length} / {pendingHandSelection.count}
+                </span>
+              </div>
+              <div className="deck-search-modal__grid">
+                {pendingHandCards.map((card) => {
+                  const selected = pendingHandSelection.selectedUids.includes(card.uid);
+                  const disabled = !selected && pendingHandSelection.selectedUids.length >= pendingHandSelection.count;
+                  return (
+                    <button
+                      key={card.uid}
+                      type="button"
+                      className={`deck-search-card ${selected ? "selected" : ""}`}
+                      disabled={disabled}
+                      onClick={() => void actions.toggleHandSelectionCard(card.uid)}
+                    >
+                      <img src={imageUrl(card.card.image) ?? ""} alt={card.card.name} />
+                      <span className="deck-search-card__name">{card.card.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="deck-search-modal__actions">
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={pendingHandSelection.selectedUids.length < pendingHandSelection.minCount}
+                  onClick={() => void actions.confirmHandSelection()}
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {pendingDeckSearch && (
           <div className="deck-search-modal" role="dialog" aria-modal="true" aria-label={pendingDeckSearch.title}>
             <div className="deck-search-modal__panel">
@@ -316,10 +364,17 @@ export function SimulatorBoard({ store, actions, undo, redo, canUndo, canRedo }:
                 })}
               </div>
               <div className="deck-search-modal__actions">
-                <button type="button" className="btn" onClick={() => void actions.cancelDeckSearch()}>
-                  Skip
-                </button>
-                <button type="button" className="btn" onClick={() => void actions.confirmDeckSearch()}>
+                {pendingDeckSearch.minCount === 0 && (
+                  <button type="button" className="btn" onClick={() => void actions.cancelDeckSearch()}>
+                    Skip
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={pendingDeckSearch.selectedUids.length < pendingDeckSearch.minCount}
+                  onClick={() => void actions.confirmDeckSearch()}
+                >
                   Confirm
                 </button>
               </div>

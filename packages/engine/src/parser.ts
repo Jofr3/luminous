@@ -161,6 +161,7 @@ export function parseEffectText(text: string | null): EffectAction[] {
       type: "search_deck",
       player: "self",
       count: parseInt(buddyBuddyPoffinMatch[1], 10),
+      minCount: 0,
       destination: "bench",
       category: "Pokemon",
       stage: "Basic",
@@ -289,15 +290,88 @@ export function parseEffectText(text: string | null): EffectAction[] {
   }
 
   // Search deck
-  const searchMatch = text.match(/search your deck for (?:up to )?(\d+|a|an) /i);
+  const searchMatch = text.match(/search your deck for (?:up to )?(\d+|a|an|any number of) /i);
   if (searchMatch) {
     const countStr = searchMatch[1];
-    const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
+    const isAnyNumber = /any number/i.test(countStr);
+    const count = isAnyNumber ? 99 : countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
+    const isUpTo = isAnyNumber || /up to/i.test(searchMatch[0]) || /up to/i.test(text);
+    const destination: "hand" | "bench" = /onto your Bench|to your Bench/i.test(text) ? "bench" : "hand";
+
+    // Determine what we're searching for from the text after "search your deck for [up to] N"
+    let category: CardData["category"] | undefined;
+    let stage: Stage | undefined;
+    let trainerType: TrainerType | undefined;
+    let suffix: string | undefined;
+    let maxHp: number | undefined;
+    let filter: string | undefined;
+
+    // "Basic Pokémon" → category Pokemon, stage Basic
+    if (/basic pok[eé]mon/i.test(text)) {
+      category = "Pokemon";
+      stage = "Basic";
+    }
+    // "Evolution Pokémon" → category Pokemon, evolution filter
+    else if (/evolution pok[eé]mon/i.test(text)) {
+      category = "Pokemon";
+      filter = "Evolution Pokemon";
+    }
+    // "Pokémon ex" → category Pokemon, suffix ex
+    else if (/pok[eé]mon ex\b/i.test(text)) {
+      category = "Pokemon";
+      suffix = "ex";
+    }
+    // "Pokémon Tool card" → category Trainer, trainerType Tool
+    else if (/pok[eé]mon tool card/i.test(text)) {
+      category = "Trainer";
+      trainerType = "Tool";
+    }
+    // "Item card" → category Trainer, trainerType Item
+    else if (/item cards?\b/i.test(text)) {
+      category = "Trainer";
+      trainerType = "Item";
+    }
+    // "Supporter card" → category Trainer, trainerType Supporter
+    else if (/supporter cards?\b/i.test(text)) {
+      category = "Trainer";
+      trainerType = "Supporter";
+    }
+    // "Stadium card" → category Trainer, trainerType Stadium
+    else if (/stadium cards?\b/i.test(text)) {
+      category = "Trainer";
+      trainerType = "Stadium";
+    }
+    // "Trainer card" → category Trainer
+    else if (/trainer cards?\b/i.test(text)) {
+      category = "Trainer";
+    }
+    // "Energy card" or "Basic Energy" → category Energy
+    else if (/energy cards?\b/i.test(text) || /basic energy/i.test(text)) {
+      category = "Energy";
+    }
+    // Generic "Pokémon" (must be last Pokémon check)
+    else if (/for (?:up to )?(?:\d+|a|an) (?:\w+ )*pok[eé]mon/i.test(text)) {
+      category = "Pokemon";
+    }
+
+    // Extract "with X HP or less"
+    const hpMatch = text.match(/with (\d+) HP or less/i);
+    if (hpMatch) {
+      maxHp = parseInt(hpMatch[1], 10);
+    }
+
     actions.push({
       type: "search_deck",
       player: "self",
       count,
-      destination: /onto your Bench|to your Bench/i.test(text) ? "bench" : "hand",
+      minCount: isUpTo ? 0 : count,
+      destination,
+      category,
+      stage,
+      trainerType,
+      suffix,
+      maxHp,
+      filter,
     });
   }
 
