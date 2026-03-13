@@ -310,6 +310,19 @@ export function parseEffectText(text: string | null): EffectAction[] {
     actions.push({ type: "discard_card", source: "hand", count });
   }
 
+  // Put damage counters on opponent's Benched Pokemon (1 counter = 10 damage)
+  const dmgCounterBenchMatch = text.match(/put (\d+) damage counters? on (?:(?:1|one|each) of )?your opponent'?s? benched pok[eé]mon/i);
+  if (dmgCounterBenchMatch) {
+    actions.push({ type: "damage", target: "bench", amount: parseInt(dmgCounterBenchMatch[1], 10) * 10 });
+  }
+  // Put damage counters on opponent's Pokemon (any — targets bench as approximation)
+  else {
+    const dmgCounterAnyMatch = text.match(/put (\d+) damage counters? on (?:(?:1|one) of )?your opponent'?s? pok[eé]mon/i);
+    if (dmgCounterAnyMatch) {
+      actions.push({ type: "damage", target: "bench", amount: parseInt(dmgCounterAnyMatch[1], 10) * 10 });
+    }
+  }
+
   // Multi-coin flip damage: "Flip N coins. This attack does X damage times the number of heads."
   const multiCoinMatch = text.match(/flip (\d+) coins?.*does (\d+) damage (?:times|for each|×|x) (?:the number of )?heads/i);
   if (multiCoinMatch) {
