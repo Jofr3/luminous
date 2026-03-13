@@ -18,6 +18,7 @@ import {
 import {
   toEnginePokemon,
   toEngineBoard,
+  toEngineCardInstance,
   syncFromEnginePokemon,
 } from "./engine-bridge";
 import {
@@ -30,8 +31,12 @@ import {
   canRetreat as engineCanRetreat,
   canRetreatCondition,
   applySpecialCondition,
+  canPlayTrainer,
+  playTrainer,
+  canUseAbility,
+  useAbility as resolveAbilityUse,
 } from "@luminous/engine";
-import type { CardAttack } from "@luminous/engine";
+import type { CardAttack, EffectAction, GameState as EngineGameState } from "@luminous/engine";
 
 type WithStore = <Args extends unknown[], R>(
   fn: (draft: SimulatorStore, ...args: Args) => R | Promise<R>,
@@ -199,14 +204,95 @@ function finishTurn(store: SimulatorStore): void {
   store.turnDrawDone = true;
 }
 
-function applyResolvedEffects(store: SimulatorStore, attackerIdx: 0 | 1, defenderIdx: 0 | 1, effects: ReturnType<typeof resolveAttack>["effects"]): void {
-  const attacker = store.players[attackerIdx];
-  const defender = store.players[defenderIdx];
+function buildEngineState(store: SimulatorStore): EngineGameState {
+  return {
+    players: [toEngineBoard(store.players[0]), toEngineBoard(store.players[1])],
+    stadium: store.stadium ? { card: toEngineCardInstance(store.stadium.card), playedByPlayer: store.stadium.playedByPlayer } : null,
+    currentTurn: store.currentTurn,
+    firstPlayer: store.firstPlayer,
+    turnNumber: store.turnNumber,
+    phase: store.phase === "idle" ? "setup" : store.phase,
+    winner: store.winner as 0 | 1 | null,
+    turnDrawDone: store.turnDrawDone,
+    logs: [],
+  };
+}
+
+function findPokemon(store: SimulatorStore, playerIdx: 0 | 1, pokemonUid: string): PokemonInPlay | null {
+  const player = store.players[playerIdx];
+  if (player.active?.uid === pokemonUid) return player.active;
+  return player.bench.find((pokemon) => pokemon.uid === pokemonUid) ?? null;
+}
+
+function movePokemonCards(
+  store: SimulatorStore,
+  playerIdx: 0 | 1,
+  pokemon: PokemonInPlay,
+  destination: "hand" | "deck" | "discard",
+): void {
+  const owner = store.players[playerIdx];
+  const cards = [pokemon.base, ...pokemon.attached];
+
+  if (destination === "discard") {
+    owner.discard.push(...cards);
+    return;
+  }
+
+  if (destination === "hand") {
+    owner.hand.push(...cards);
+    return;
+  }
+
+  owner.deck.push(...cards);
+  owner.deck = owner.deck.sort(() => Math.random() - 0.5);
+}
+
+function removePokemonFromPlay(
+  store: SimulatorStore,
+  playerIdx: 0 | 1,
+  pokemonUid: string,
+): PokemonInPlay | null {
+  const player = store.players[playerIdx];
+  if (player.active?.uid === pokemonUid) {
+    const active = player.active;
+    player.active = null;
+    return active;
+  }
+
+  const benchIdx = player.bench.findIndex((pokemon) => pokemon.uid === pokemonUid);
+  if (benchIdx === -1) return null;
+  const [pokemon] = player.bench.splice(benchIdx, 1);
+  return pokemon ?? null;
+}
+
+function autoPromoteFirstBench(store: SimulatorStore, playerIdx: 0 | 1, reason: string): void {
+  const player = store.players[playerIdx];
+  if (player.active || player.bench.length === 0) return;
+  const promoted = player.bench.shift();
+  if (!promoted) return;
+  player.active = promoted;
+  appendLog(store, `P${playerIdx + 1} promotes ${promoted.base.card.name} ${reason}.`);
+}
+
+function applyGenericEffects(
+  store: SimulatorStore,
+  actorIdx: 0 | 1,
+  opponentIdx: 0 | 1,
+  effects: EffectAction[],
+): void {
+  const actor = store.players[actorIdx];
+  const opponent = store.players[opponentIdx];
 
   for (const effect of effects) {
     switch (effect.type) {
+      case "coin_flip": {
+        const result = Math.random() < 0.5 ? "Heads" : "Tails";
+        appendLog(store, `Coin flip: ${result}.`);
+        applyGenericEffects(store, actorIdx, opponentIdx, result === "Heads" ? effect.onHeads : effect.onTails);
+        break;
+      }
       case "special_condition": {
-        const targetPlayer = effect.target === "self" ? attacker : defender;
+        const targetPlayer = effect.target === "self" ? actor : opponent;
         const target = targetPlayer.active;
         if (!target) break;
         const engineTarget = toEnginePokemon(target);
@@ -218,18 +304,19 @@ function applyResolvedEffects(store: SimulatorStore, attackerIdx: 0 | 1, defende
       case "draw": {
         const targetPlayer =
           effect.player === "self"
-            ? attacker
-            : defender;
+            ? actor
+            : opponent;
         const drawn = drawFromDeck(targetPlayer, effect.count);
         targetPlayer.hand.push(...drawn);
-        appendLog(store, `P${effect.player === "self" ? attackerIdx + 1 : defenderIdx + 1} drew ${drawn.length} card(s).`);
+        appendLog(store, `P${effect.player === "self" ? actorIdx + 1 : opponentIdx + 1} drew ${drawn.length} card(s).`);
         break;
       }
       case "heal": {
+        const targetPlayer = actor;
         const target =
           effect.target === "self"
-            ? attacker.active
-            : null;
+            ? targetPlayer.active
+            : effect.pokemonUid ? findPokemon(store, actorIdx, effect.pokemonUid) : targetPlayer.active;
         if (!target) break;
         target.damage = Math.max(0, target.damage - effect.amount);
         appendLog(store, `${target.base.card.name} healed ${effect.amount} damage.`);
@@ -238,22 +325,168 @@ function applyResolvedEffects(store: SimulatorStore, attackerIdx: 0 | 1, defende
       case "discard_energy": {
         const target =
           effect.target === "self"
-            ? attacker.active
-            : defender.active;
+            ? actor.active
+            : opponent.active;
         if (!target) break;
 
         let remaining = effect.count;
         while (remaining > 0) {
-          const energyIdx = target.attached.findLastIndex((card) => card.card.category === "Energy");
+          const energyIdx = target.attached.findLastIndex((card) => {
+            if (card.card.category !== "Energy") return false;
+            return effect.energyType == null || effect.energyType === "any" || card.card.energy_type === effect.energyType;
+          });
           if (energyIdx === -1) break;
           const [removed] = target.attached.splice(energyIdx, 1);
           if (!removed) break;
-          const owner = effect.target === "self" ? attacker : defender;
+          const owner = effect.target === "self" ? actor : opponent;
           owner.discard.push(removed);
           remaining -= 1;
         }
         break;
       }
+      case "damage": {
+        if (effect.target === "self") {
+          if (!actor.active) break;
+          actor.active.damage += effect.amount;
+          appendLog(store, `${actor.active.base.card.name} takes ${effect.amount} damage.`);
+          if (actor.active.damage >= (actor.active.base.card.hp ?? 0)) {
+            resolveActiveKnockOut(store, actorIdx, prizesToTake(toEnginePokemon(actor.active)), " from effect damage");
+          }
+          break;
+        }
+
+        if (effect.target === "defender") {
+          if (!opponent.active) break;
+          opponent.active.damage += effect.amount;
+          appendLog(store, `${opponent.active.base.card.name} takes ${effect.amount} damage.`);
+          if (opponent.active.damage >= (opponent.active.base.card.hp ?? 0)) {
+            resolveActiveKnockOut(store, opponentIdx, prizesToTake(toEnginePokemon(opponent.active)), " from effect damage");
+          }
+          break;
+        }
+
+        if (effect.target === "bench") {
+          const target = effect.pokemonUid
+            ? findPokemon(store, opponentIdx, effect.pokemonUid)
+            : opponent.bench[0] ?? null;
+          if (!target) {
+            appendLog(store, "Bench damage effect had no valid target.");
+            break;
+          }
+          target.damage += effect.amount;
+          appendLog(store, `${target.base.card.name} takes ${effect.amount} bench damage.`);
+        }
+        break;
+      }
+      case "switch_pokemon": {
+        const targetIdx = effect.player === "self" ? actorIdx : opponentIdx;
+        const targetPlayer = store.players[targetIdx];
+        const incoming = targetPlayer.bench.shift();
+        if (!targetPlayer.active || !incoming) {
+          appendLog(store, `Switch effect for P${targetIdx + 1} had no valid bench target.`);
+          break;
+        }
+        const previousActive = targetPlayer.active;
+        previousActive.specialConditions = [];
+        previousActive.poisonDamage = 10;
+        previousActive.burnDamage = 20;
+        targetPlayer.active = incoming;
+        targetPlayer.bench.push(previousActive);
+        appendLog(store, `P${targetIdx + 1} switches ${previousActive.base.card.name} with ${incoming.base.card.name}.`);
+        break;
+      }
+      case "shuffle_hand_draw": {
+        const targetPlayer = effect.player === "self" ? actor : opponent;
+        targetPlayer.deck.push(...targetPlayer.hand);
+        targetPlayer.hand = [];
+        targetPlayer.deck = targetPlayer.deck.sort(() => Math.random() - 0.5);
+        const drawn = drawFromDeck(targetPlayer, effect.drawCount);
+        targetPlayer.hand.push(...drawn);
+        appendLog(store, `P${effect.player === "self" ? actorIdx + 1 : opponentIdx + 1} shuffled their hand into the deck and drew ${drawn.length} card(s).`);
+        break;
+      }
+      case "energy_accelerate": {
+        const sourcePlayer = actor;
+        const sourceZone = effect.source === "discard" ? sourcePlayer.discard : effect.source === "hand" ? sourcePlayer.hand : sourcePlayer.deck;
+        const target = sourcePlayer.active;
+        if (!target) break;
+
+        let attached = 0;
+        for (let i = sourceZone.length - 1; i >= 0 && attached < effect.count; i -= 1) {
+          const card = sourceZone[i];
+          if (card.card.category !== "Energy") continue;
+          if (effect.energyType && effect.energyType !== "any" && card.card.energy_type !== effect.energyType) continue;
+          const [energy] = sourceZone.splice(i, 1);
+          if (!energy) continue;
+          target.attached.push(energy);
+          attached += 1;
+        }
+        appendLog(store, `${target.base.card.name} attached ${attached} Energy card(s) from ${effect.source}.`);
+        break;
+      }
+      case "bounce": {
+        const targetIdx = effect.target === "self" ? actorIdx : opponentIdx;
+        const targetPlayer = store.players[targetIdx];
+        const target = targetPlayer.active;
+        if (!target) break;
+        const removed = removePokemonFromPlay(store, targetIdx, target.uid);
+        if (!removed) break;
+        movePokemonCards(store, targetIdx, removed, effect.destination);
+        appendLog(store, `${removed.base.card.name} was returned to ${effect.destination}.`);
+        autoPromoteFirstBench(store, targetIdx, "after the bounce");
+        break;
+      }
+      case "search_deck": {
+        const searchPlayer = effect.player === "self" ? actor : opponent;
+        const searchPlayerIdx = effect.player === "self" ? actorIdx : opponentIdx;
+        if (searchPlayer.deck.length === 0) {
+          appendLog(store, `P${searchPlayerIdx + 1} has no cards in deck to search.`);
+          break;
+        }
+        // Auto-search: pick the first N matching cards from deck and add to hand
+        const found: CardInstance[] = [];
+        for (let i = 0; i < searchPlayer.deck.length && found.length < effect.count; i += 1) {
+          const card = searchPlayer.deck[i];
+          if (effect.filter) {
+            const filterLower = effect.filter.toLowerCase();
+            // Basic filter matching: "Pokemon", "Energy", "Trainer", or type names
+            if (filterLower.includes("pokemon") && card.card.category !== "Pokemon") continue;
+            if (filterLower.includes("energy") && card.card.category !== "Energy") continue;
+            if (filterLower.includes("trainer") && card.card.category !== "Trainer") continue;
+          }
+          found.push(card);
+        }
+        for (const card of found) {
+          const idx = searchPlayer.deck.indexOf(card);
+          if (idx !== -1) searchPlayer.deck.splice(idx, 1);
+          searchPlayer.hand.push(card);
+        }
+        // Shuffle deck after search
+        searchPlayer.deck = searchPlayer.deck.sort(() => Math.random() - 0.5);
+        appendLog(store, `P${searchPlayerIdx + 1} searched their deck and found ${found.length} card(s).`);
+        break;
+      }
+      case "discard_card": {
+        if (effect.source === "hand") {
+          let remaining = effect.count;
+          while (remaining > 0 && actor.hand.length > 0) {
+            const discarded = actor.hand.pop();
+            if (!discarded) break;
+            actor.discard.push(discarded);
+            remaining -= 1;
+          }
+          appendLog(store, `P${actorIdx + 1} discarded ${effect.count - remaining} card(s) from hand.`);
+        } else {
+          appendLog(store, `Unsupported discard_card source: ${effect.source}.`);
+        }
+        break;
+      }
+      case "prevent_damage":
+        appendLog(store, `Damage prevention effect noted (not fully tracked in simulator).`);
+        break;
+      case "custom":
+        appendLog(store, `Manual effect: ${effect.description}`);
+        break;
       default:
         break;
     }
@@ -442,21 +675,11 @@ export function useSimulatorActions(withStore: WithStore): {
       attack: engineAttack,
       attackerBoard: toEngineBoard(attacker),
       defenderBoard: toEngineBoard(defender),
-      state: {
-        players: [toEngineBoard(store.players[0]), toEngineBoard(store.players[1])],
-        stadium: null,
-        currentTurn: store.currentTurn,
-        firstPlayer: store.firstPlayer,
-        turnNumber: store.turnNumber,
-        phase: "playing",
-        winner: null,
-        turnDrawDone: store.turnDrawDone,
-        logs: [],
-      },
+      state: buildEngineState(store),
     });
 
     for (const log of result.logs) appendLog(store, log);
-    applyResolvedEffects(store, store.currentTurn, defenderIdx, result.effects);
+    applyGenericEffects(store, store.currentTurn, defenderIdx, result.effects);
 
     syncFromEnginePokemon(attacker.active, engineAttacker);
     syncFromEnginePokemon(defender.active, engineDefender);
@@ -482,23 +705,25 @@ export function useSimulatorActions(withStore: WithStore): {
     if (!canAct(store, store.currentTurn, "use ability")) return;
 
     const player = store.players[store.currentTurn];
-    let pokemon = player.active?.uid === pokemonUid ? player.active : null;
-    if (!pokemon) {
-      pokemon = player.bench.find((p) => p.uid === pokemonUid) ?? null;
-    }
+    const pokemon = player.active?.uid === pokemonUid
+      ? player.active
+      : player.bench.find((p) => p.uid === pokemonUid) ?? null;
     if (!pokemon) return;
 
-    const abilities = pokemon.base.card.abilities ?? [];
-    if (abilityIdx < 0 || abilityIdx >= abilities.length) return;
+    const enginePokemon = toEnginePokemon(pokemon);
+    const ability = enginePokemon.base.card.abilities[abilityIdx];
+    if (!ability) return;
 
-    if (pokemon.usedAbilityThisTurn) return;
-
-    const ability = abilities[abilityIdx];
-    pokemon.usedAbilityThisTurn = true;
-    appendLog(store, `${pokemon.base.card.name} uses ${ability.type}: ${ability.name}.`);
-    if (ability.effect) {
-      appendLog(store, `  Effect: ${ability.effect}`);
+    const canUse = canUseAbility(enginePokemon, ability);
+    if (!canUse.allowed) {
+      if (canUse.reason) appendLog(store, canUse.reason);
+      return;
     }
+
+    const result = resolveAbilityUse(enginePokemon, ability, toEngineBoard(player), buildEngineState(store));
+    syncFromEnginePokemon(pokemon, enginePokemon);
+    for (const log of result.logs) appendLog(store, log);
+    applyGenericEffects(store, store.currentTurn, (store.currentTurn === 0 ? 1 : 0) as 0 | 1, result.effects);
   });
 
   // ---------------------------------------------------------------------------
@@ -515,43 +740,42 @@ export function useSimulatorActions(withStore: WithStore): {
     const card = cardInHand.card;
     if (card.category !== "Trainer") return;
 
-    // Supporter: one per turn
-    if (card.trainer_type === "Supporter") {
-      if (player.supporterPlayedThisTurn) return;
-      // First turn restriction
-      if (store.turnNumber === 1 && store.currentTurn === store.firstPlayer) return;
-    }
-
-    // Remove from hand
-    const card_ = removeHandCard(player, uid);
-    if (!card_) return;
-
-    appendLog(store, `P${store.currentTurn + 1} plays ${card.name} (${card.trainer_type ?? "Trainer"}).`);
-
-    // Handle stadiums
-    if (card.trainer_type === "Stadium") {
-      if (store.stadium) {
-        const oldOwner = store.players[store.stadium.playedByPlayer];
-        oldOwner.discard.push(store.stadium.card);
-        appendLog(store, `${store.stadium.card.card.name} is discarded.`);
-      }
-      store.stadium = { card: card_, playedByPlayer: store.currentTurn };
-      appendLog(store, `${card.name} is now in play.`);
+    const engineCard = toEngineCardInstance(cardInHand);
+    const canPlay = canPlayTrainer(engineCard, toEngineBoard(player), buildEngineState(store), store.currentTurn);
+    if (!canPlay.allowed) {
+      if (canPlay.reason) appendLog(store, canPlay.reason);
       return;
     }
 
-    // Track supporter usage
-    if (card.trainer_type === "Supporter") {
+    if (engineCard.card.trainerType === "Tool" || engineCard.card.trainerType === "Technical Machine") {
+      appendLog(store, `${card.name} requires selecting a target Pokemon. That flow is not implemented yet.`);
+      return;
+    }
+
+    const playedCard = removeHandCard(player, uid);
+    if (!playedCard) return;
+
+    const result = playTrainer(engineCard, toEngineBoard(player), buildEngineState(store), store.currentTurn);
+    for (const log of result.logs) appendLog(store, log);
+
+    if (engineCard.card.trainerType === "Supporter") {
       player.supporterPlayedThisTurn = true;
     }
 
-    // Show effect text for manual resolution
-    if (card.effect) {
-      appendLog(store, `  Effect: ${card.effect}`);
+    if (engineCard.card.trainerType === "Stadium") {
+      if (store.stadium) {
+        const oldOwner = store.players[store.stadium.playedByPlayer];
+        oldOwner.discard.push(store.stadium.card);
+      }
+      store.stadium = { card: playedCard, playedByPlayer: store.currentTurn };
+      return;
     }
 
-    // Items and Supporters go to discard
-    player.discard.push(card_);
+    applyGenericEffects(store, store.currentTurn, (store.currentTurn === 0 ? 1 : 0) as 0 | 1, result.effects);
+
+    if (engineCard.card.trainerType === "Item" || engineCard.card.trainerType === "Supporter" || engineCard.card.trainerType === "ACE SPEC" || engineCard.card.trainerType === "Rocket's Secret Machine") {
+      player.discard.push(playedCard);
+    }
   });
 
   // ---------------------------------------------------------------------------

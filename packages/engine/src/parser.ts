@@ -163,6 +163,27 @@ export function parseEffectText(text: string | null): EffectAction[] {
     return actions;
   }
 
+  // Coin flip: "If tails, this attack does nothing"
+  if (/flip a coin.*if tails.*does nothing/i.test(text)) {
+    actions.push({
+      type: "coin_flip",
+      onHeads: [],
+      onTails: [{ type: "custom", description: "This attack does nothing." }],
+    });
+    return actions;
+  }
+
+  // Coin flip with extra damage: "If heads, this attack does X more damage"
+  const coinExtraDmgMatch = text.match(/flip a coin.*if heads.*does (\d+) more damage/i);
+  if (coinExtraDmgMatch) {
+    actions.push({
+      type: "coin_flip",
+      onHeads: [{ type: "damage", target: "defender", amount: parseInt(coinExtraDmgMatch[1], 10) }],
+      onTails: [],
+    });
+    return actions;
+  }
+
   // Coin flip with special condition
   const coinCondMatch = text.match(/flip a coin.*if heads.*(?:the defending|your opponent's active) pok[eé]mon is now (Asleep|Burned|Confused|Paralyzed|Poisoned)/i);
   if (coinCondMatch) {
@@ -175,7 +196,7 @@ export function parseEffectText(text: string | null): EffectAction[] {
     return actions;
   }
 
-  // Direct special condition: "The Defending Pokemon is now X"
+  // Direct special condition: "The Defending Pokemon is now X" / "Your opponent's Active Pokemon is now X"
   const directCondMatch = text.match(/(?:the defending|your opponent's active) pok[eé]mon is now (Asleep|Burned|Confused|Paralyzed|Poisoned)/i);
   if (directCondMatch && !lower.includes("flip")) {
     actions.push({
@@ -185,24 +206,35 @@ export function parseEffectText(text: string | null): EffectAction[] {
     });
   }
 
-  // Self-damage: "does X damage to itself"
+  // Self-damage: "does X damage to itself" / "also does X damage to itself"
   const selfDmgMatch = text.match(/does (\d+) damage to itself/i);
   if (selfDmgMatch) {
     actions.push({ type: "damage", target: "self", amount: parseInt(selfDmgMatch[1], 10) });
   }
 
   // Discard energy: "Discard N Energy/energy cards"
-  const discardEnergyMatch = text.match(/discard (\d+|an?) (?:\w+ )?energy/i);
+  const discardEnergyMatch = text.match(/discard (\d+|an?) (?:(\w+) )?energy/i);
   if (discardEnergyMatch) {
     const countStr = discardEnergyMatch[1];
     const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
-    actions.push({ type: "discard_energy", target: "self", count, energyType: "any" });
+    const energyTypeWord = discardEnergyMatch[2];
+    const energyType: EnergyType | "any" = energyTypeWord && isEnergyTypeName(energyTypeWord) ? energyTypeWord as EnergyType : "any";
+    actions.push({ type: "discard_energy", target: "self", count, energyType });
   }
 
-  // Draw cards: "Draw N cards"
-  const drawMatch = text.match(/draw (\d+) cards?/i);
-  if (drawMatch) {
-    actions.push({ type: "draw", player: "self", count: parseInt(drawMatch[1], 10) });
+  // Discard hand and draw: "Discard your hand and draw N cards"
+  const discardHandDrawMatch = text.match(/discard your hand and draw (\d+) cards?/i);
+  if (discardHandDrawMatch) {
+    actions.push({ type: "shuffle_hand_draw", player: "self", drawCount: parseInt(discardHandDrawMatch[1], 10) });
+    return actions;
+  }
+
+  // Draw cards: "Draw N cards" or "Draw a card"
+  const drawMatch = text.match(/draw (\d+|a) cards?/i);
+  if (drawMatch && !lower.includes("shuffle your hand")) {
+    const countStr = drawMatch[1];
+    const count = countStr === "a" ? 1 : parseInt(countStr, 10);
+    actions.push({ type: "draw", player: "self", count });
   }
 
   // Heal: "Heal N damage"
@@ -217,8 +249,12 @@ export function parseEffectText(text: string | null): EffectAction[] {
     actions.push({ type: "damage", target: "bench", amount: parseInt(benchDmgMatch[1], 10) });
   }
 
-  // Switch: "Switch your opponent's Active Pokemon"
-  if (/switch.*opponent'?s? active/i.test(text)) {
+  // Self-switch: "Switch this Pokemon with 1 of your Benched Pokemon"
+  if (/switch (?:this|your active) pok[eé]mon with (?:1|one) of your benched/i.test(text)) {
+    actions.push({ type: "switch_pokemon", player: "self" });
+  }
+  // Opponent switch: "Switch your opponent's Active Pokemon"
+  else if (/switch.*opponent'?s? active/i.test(text)) {
     actions.push({ type: "switch_pokemon", player: "opponent" });
   }
 
@@ -232,10 +268,10 @@ export function parseEffectText(text: string | null): EffectAction[] {
   }
 
   // Search deck
-  const searchMatch = text.match(/search your deck for (?:up to )?(\d+|a) /i);
+  const searchMatch = text.match(/search your deck for (?:up to )?(\d+|a|an) /i);
   if (searchMatch) {
     const countStr = searchMatch[1];
-    const count = countStr === "a" ? 1 : parseInt(countStr, 10);
+    const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
     actions.push({ type: "search_deck", player: "self", count });
   }
 
@@ -246,9 +282,28 @@ export function parseEffectText(text: string | null): EffectAction[] {
     actions.push({ type: "energy_accelerate", source: "discard", count });
   }
 
+  // Energy acceleration from hand: "attach ... Energy card from your hand"
+  if (/attach.*energy.*from your hand/i.test(text) && !lower.includes("discard")) {
+    const accMatch = text.match(/attach (?:up to )?(\d+|a|an) /i);
+    const count = accMatch ? (accMatch[1] === "a" || accMatch[1] === "an" ? 1 : parseInt(accMatch[1], 10)) : 1;
+    actions.push({ type: "energy_accelerate", source: "hand", count });
+  }
+
   // Bounce to hand
   if (/return.*defending.*to.*hand/i.test(text) || /put.*defending.*into.*hand/i.test(text)) {
     actions.push({ type: "bounce", target: "defender", destination: "hand" });
+  }
+  // Bounce to deck
+  else if (/shuffle.*defending.*into.*deck/i.test(text) || /put.*defending.*into.*deck/i.test(text)) {
+    actions.push({ type: "bounce", target: "defender", destination: "deck" });
+  }
+
+  // Discard cards from hand: "discard N cards from your hand"
+  const discardCardMatch = text.match(/discard (\d+|a|an) (?:other )?cards? from your hand/i);
+  if (discardCardMatch) {
+    const countStr = discardCardMatch[1];
+    const count = countStr === "a" || countStr === "an" ? 1 : parseInt(countStr, 10);
+    actions.push({ type: "discard_card", source: "hand", count });
   }
 
   // If no patterns matched, create a custom action with the full text
@@ -257,4 +312,13 @@ export function parseEffectText(text: string | null): EffectAction[] {
   }
 
   return actions;
+}
+
+const ENERGY_TYPE_NAMES = new Set([
+  "grass", "fire", "water", "lightning", "psychic",
+  "fighting", "darkness", "metal", "fairy", "dragon", "colorless",
+]);
+
+function isEnergyTypeName(word: string): boolean {
+  return ENERGY_TYPE_NAMES.has(word.toLowerCase());
 }
