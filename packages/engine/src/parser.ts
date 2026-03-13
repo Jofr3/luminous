@@ -253,6 +253,10 @@ export function parseEffectText(text: string | null): EffectAction[] {
   if (/switch (?:this|your active) pok[eé]mon with (?:1|one) of your benched/i.test(text)) {
     actions.push({ type: "switch_pokemon", player: "self" });
   }
+  // Boss's Orders style: "Switch in 1 of your opponent's Benched Pokemon to the Active Spot"
+  else if (/switch in.*opponent'?s? benched.*active spot/i.test(text)) {
+    actions.push({ type: "switch_pokemon", player: "opponent" });
+  }
   // Opponent switch: "Switch your opponent's Active Pokemon"
   else if (/switch.*opponent'?s? active/i.test(text)) {
     actions.push({ type: "switch_pokemon", player: "opponent" });
