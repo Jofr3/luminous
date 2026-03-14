@@ -597,8 +597,28 @@ export function parseEffectText(text: string | null): EffectAction[] {
     actions.push({ type: "discard_card", source: "hand", count });
   }
 
+  // Search deck - multi-stage pattern (e.g. Dawn: "a Basic Pokémon, a Stage 1 Pokémon, and a Stage 2 Pokémon")
+  const multiStageSearchMatch = text.match(
+    /search your deck for a basic pok[eé]mon,? a stage 1 pok[eé]mon,? and a stage 2 pok[eé]mon/i,
+  );
+  if (multiStageSearchMatch) {
+    const destination: "hand" | "bench" = /onto your Bench|to your Bench/i.test(text) ? "bench" : "hand";
+    const stages: Stage[] = ["Basic", "Stage1", "Stage2"];
+    for (const stage of stages) {
+      actions.push({
+        type: "search_deck",
+        player: "self",
+        count: 1,
+        minCount: 0,
+        destination,
+        category: "Pokemon",
+        stage,
+      });
+    }
+  }
+
   // Search deck
-  const searchMatch = text.match(/search your deck for (?:up to )?(\d+|a|an|any number of) /i);
+  const searchMatch = !multiStageSearchMatch && text.match(/search your deck for (?:up to )?(\d+|a|an|any number of) /i);
   if (searchMatch) {
     const countStr = searchMatch[1];
     const isAnyNumber = /any number/i.test(countStr);
