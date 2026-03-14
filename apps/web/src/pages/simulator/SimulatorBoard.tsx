@@ -152,6 +152,10 @@ export function SimulatorBoard({ store, rules, actions, undo, redo, canUndo, can
     ? store.players[pendingDiscardSelection.playerIdx].discard.filter((card) =>
       pendingDiscardSelection.candidateUids.includes(card.uid))
     : [];
+  const pendingBenchDiscard = store.pendingBenchDiscard;
+  const pendingBenchCards = pendingBenchDiscard
+    ? store.players[pendingBenchDiscard.playerIdx].bench
+    : [];
   const pendingEvolveFromDeck = store.pendingEvolveFromDeck;
   const pendingEvolveDeckCards = pendingEvolveFromDeck
     ? store.players[pendingEvolveFromDeck.actorIdx].deck.filter((card) =>
@@ -259,7 +263,7 @@ export function SimulatorBoard({ store, rules, actions, undo, redo, canUndo, can
               </div>
               <button
                 className={`btn end-turn ${store.phase === "setup" && !currentPlayer.active ? "needs-active" : ""}`}
-                disabled={store.phase === "idle" || !rules?.endTurn.allowed || !!store.pendingHandSelection || !!store.pendingDeckSearch || !!store.pendingDiscardSelection || !!store.pendingOpponentSwitch || !!store.pendingSelfSwitch || !!store.pendingRareCandy || !!store.pendingEvolveFromDeck}
+                disabled={store.phase === "idle" || !rules?.endTurn.allowed || !!store.pendingHandSelection || !!store.pendingDeckSearch || !!store.pendingDiscardSelection || !!store.pendingOpponentSwitch || !!store.pendingSelfSwitch || !!store.pendingRareCandy || !!store.pendingEvolveFromDeck || !!store.pendingBenchDiscard}
                 onClick={actions.endTurn}
                 title={rules?.endTurn.reason ?? "End Turn"}
               >
@@ -597,6 +601,49 @@ export function SimulatorBoard({ store, rules, actions, undo, redo, canUndo, can
                   className="btn"
                   disabled={pendingEvolveFromDeck.selectedUids.length !== 1}
                   onClick={() => void actions.confirmEvolveFromDeck()}
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {pendingBenchDiscard && (
+          <div className="deck-search-modal" role="dialog" aria-modal="true" aria-label={pendingBenchDiscard.title}>
+            <div className="deck-search-modal__panel">
+              <div className="deck-search-modal__header">
+                <div>
+                  <h2>{pendingBenchDiscard.title}</h2>
+                  <p>{pendingBenchDiscard.instruction}</p>
+                </div>
+                <span className="deck-search-modal__count">
+                  {pendingBenchDiscard.selectedUids.length} / {pendingBenchDiscard.discardCount}
+                </span>
+              </div>
+              <div className="deck-search-modal__grid">
+                {pendingBenchCards.map((pokemon) => {
+                  const selected = pendingBenchDiscard.selectedUids.includes(pokemon.uid);
+                  const disabled = !selected && pendingBenchDiscard.selectedUids.length >= pendingBenchDiscard.discardCount;
+                  return (
+                    <button
+                      key={pokemon.uid}
+                      type="button"
+                      className={`deck-search-card ${selected ? "selected" : ""}`}
+                      disabled={disabled}
+                      onClick={() => void actions.toggleBenchDiscardCard(pokemon.uid)}
+                    >
+                      <img src={imageUrl(pokemon.base.card.image) ?? ""} alt={pokemon.base.card.name} />
+                      <span className="deck-search-card__name">{pokemon.base.card.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="deck-search-modal__actions">
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={pendingBenchDiscard.selectedUids.length !== pendingBenchDiscard.discardCount}
+                  onClick={() => void actions.confirmBenchDiscard()}
                 >
                   Confirm
                 </button>

@@ -94,6 +94,8 @@ export function useSimulatorActions(
       toggleEvolveFromDeckCard: (uid) => dispatch({ type: "toggleEvolveFromDeckCard", uid }, { history: "skip" }),
       confirmEvolveFromDeck: () => dispatch({ type: "confirmEvolveFromDeck" }, { history: "replace" }),
       cancelEvolveFromDeck: () => dispatch({ type: "cancelEvolveFromDeck" }, { history: "replace" }),
+      toggleBenchDiscardCard: (uid) => dispatch({ type: "toggleBenchDiscardCard", uid }, { history: "skip" }),
+      confirmBenchDiscard: () => dispatch({ type: "confirmBenchDiscard" }, { history: "replace" }),
       useStadiumAbility: () => dispatch({ type: "useStadiumAbility" }),
       dropToTrainerUse: (payload: DragPayload) => dispatch({ type: "dropToTrainerUse", payload }),
       retreat: (benchUid) => dispatch({ type: "retreat", benchUid }),

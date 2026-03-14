@@ -146,6 +146,16 @@ export interface PendingEvolveFromDeck {
   remainingEffects: EffectAction[];
 }
 
+export interface PendingBenchDiscard {
+  playerIdx: PlayerIndex;
+  discardCount: number;
+  selectedUids: string[];
+  title: string;
+  instruction: string;
+  /** The other player to check after this one confirms (for stadium removal). */
+  nextPlayerIdx: PlayerIndex | null;
+}
+
 export interface ActiveEffect {
   type: "item_lock" | "cant_attack" | "cant_retreat" | "prevent_damage" | "damage_reduction";
   turnsRemaining: number;
@@ -194,6 +204,7 @@ export interface SimulatorStore {
   pendingSelfSwitch: PendingSelfSwitch | null;
   pendingRareCandy: PendingRareCandy | null;
   pendingEvolveFromDeck: PendingEvolveFromDeck | null;
+  pendingBenchDiscard: PendingBenchDiscard | null;
   stadiumUsedThisTurn: [boolean, boolean];
   gameStarted: boolean;
 }
@@ -268,6 +279,8 @@ export type SimulatorAction =
   | { type: "toggleEvolveFromDeckCard"; uid: string }
   | { type: "confirmEvolveFromDeck" }
   | { type: "cancelEvolveFromDeck" }
+  | { type: "toggleBenchDiscardCard"; uid: string }
+  | { type: "confirmBenchDiscard" }
   | { type: "useStadiumAbility" }
   | { type: "dropToTrainerUse"; payload: DragPayload }
   | { type: "retreat"; benchUid: string }

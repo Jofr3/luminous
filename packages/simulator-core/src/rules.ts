@@ -32,7 +32,8 @@ function hasBlockingPrompt(store: SimulatorStore): boolean {
       store.pendingOpponentSwitch ||
       store.pendingSelfSwitch ||
       store.pendingRareCandy ||
-      store.pendingEvolveFromDeck,
+      store.pendingEvolveFromDeck ||
+      store.pendingBenchDiscard,
   );
 }
 

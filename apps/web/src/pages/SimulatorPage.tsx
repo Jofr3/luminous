@@ -33,6 +33,7 @@ function createInitialStore(): SimulatorStore {
     pendingSelfSwitch: null,
     pendingRareCandy: null,
     pendingEvolveFromDeck: null,
+    pendingBenchDiscard: null,
     stadiumUsedThisTurn: [false, false],
     gameStarted: false,
   };

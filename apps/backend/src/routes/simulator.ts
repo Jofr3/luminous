@@ -294,6 +294,7 @@ function isSimulatorAction(value: unknown): value is SimulatorAction {
     case "toggleDeckSearchCard":
     case "toggleDiscardSelectionCard":
     case "toggleEvolveFromDeckCard":
+    case "toggleBenchDiscardCard":
       return typeof value.uid === "string";
     case "confirmOpponentSwitch":
     case "confirmSelfSwitch":
@@ -309,6 +310,7 @@ function isSimulatorAction(value: unknown): value is SimulatorAction {
     case "cancelRareCandy":
     case "confirmEvolveFromDeck":
     case "cancelEvolveFromDeck":
+    case "confirmBenchDiscard":
     case "useStadiumAbility":
     case "endTurn":
       return true;
@@ -399,6 +401,7 @@ simulatorRoute.post("/new-game", async (c) => {
     pendingSelfSwitch: null,
     pendingRareCandy: null,
     pendingEvolveFromDeck: null,
+    pendingBenchDiscard: null,
     stadiumUsedThisTurn: [false, false],
     gameStarted: true,
   };

@@ -15,6 +15,7 @@ function migrateStore(store: SimulatorStore): SimulatorStore {
   store.pendingSelfSwitch ??= null;
   store.pendingRareCandy ??= null;
   store.pendingEvolveFromDeck ??= null;
+  store.pendingBenchDiscard ??= null;
   store.stadiumUsedThisTurn ??= [false, false];
   store.gameStarted ??= store.phase !== "idle";
   for (const player of store.players) {

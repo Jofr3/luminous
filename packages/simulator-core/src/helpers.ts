@@ -162,25 +162,34 @@ export function matchesDeckSearchFilter(card: CardInstance, effect: Extract<Effe
 }
 
 /**
- * After a stadium leaves play or Tera status changes, enforce the default bench limit.
- * The player who played the old stadium discards first, then the other player.
- * Players choose which Pokémon to discard (for now, auto-discard from the end).
+ * After a stadium leaves play, queue an interactive bench discard prompt
+ * if any player exceeds the bench limit. The stadium owner discards first.
  */
 export function enforceBenchLimit(store: SimulatorStore, firstPlayerIdx?: 0 | 1): void {
-  const order: Array<0 | 1> = firstPlayerIdx != null
-    ? [firstPlayerIdx, (firstPlayerIdx === 0 ? 1 : 0) as 0 | 1]
-    : [0, 1];
-  for (const pIdx of order) {
-    const maxBench = getMaxBenchSize(store, pIdx);
-    const player = store.players[pIdx];
-    while (player.bench.length > maxBench) {
-      const removed = player.bench.pop();
-      if (!removed) break;
-      // Discard the Pokémon and all its attached cards
-      player.discard.push(removed.base);
-      for (const attached of removed.attached) player.discard.push(attached);
-      appendLog(store, `P${pIdx + 1} discarded ${removed.base.card.name} from the Bench (bench limit).`);
-    }
+  const first = firstPlayerIdx ?? 0;
+  const second = (first === 0 ? 1 : 0) as 0 | 1;
+  queueBenchDiscardIfNeeded(store, first, second);
+}
+
+export function queueBenchDiscardIfNeeded(store: SimulatorStore, playerIdx: 0 | 1, nextPlayerIdx: 0 | 1 | null): void {
+  const maxBench = getMaxBenchSize(store, playerIdx);
+  const player = store.players[playerIdx];
+  const excess = player.bench.length - maxBench;
+  if (excess > 0) {
+    store.pendingBenchDiscard = {
+      playerIdx,
+      discardCount: excess,
+      selectedUids: [],
+      title: "Discard Bench Pokémon",
+      instruction: `P${playerIdx + 1}: Choose ${excess} Pokémon to discard from your Bench.`,
+      nextPlayerIdx: nextPlayerIdx,
+    };
+    appendLog(store, `P${playerIdx + 1} must discard ${excess} Pokémon from the Bench.`);
+    return;
+  }
+  // This player is fine — check the next player
+  if (nextPlayerIdx != null) {
+    queueBenchDiscardIfNeeded(store, nextPlayerIdx, null);
   }
 }
 

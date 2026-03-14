@@ -124,6 +124,7 @@ function makeStore(overrides: Partial<SimulatorStore> = {}): SimulatorStore {
     pendingSelfSwitch: null,
     pendingRareCandy: null,
     pendingEvolveFromDeck: null,
+    pendingBenchDiscard: null,
     stadiumUsedThisTurn: [false, false],
     gameStarted: true,
     ...overrides,

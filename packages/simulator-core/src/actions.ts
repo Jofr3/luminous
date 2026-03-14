@@ -24,6 +24,7 @@ import {
   drawFromDeck,
   enforceBenchLimit,
   findPokemon,
+  queueBenchDiscardIfNeeded,
   getMaxBenchSize,
   isBasicPokemon,
   isEvolutionPokemon,
@@ -1484,6 +1485,39 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
       player.deck = shuffle(player.deck);
       appendLog(store, `P${pending.playerIdx + 1} finished searching their deck without taking cards.`);
       store.pendingDeckSearch = null;
+      return;
+    }
+    case "toggleBenchDiscardCard": {
+      const pending = store.pendingBenchDiscard;
+      if (!pending) return;
+      const player = store.players[pending.playerIdx];
+      const isBenchUid = player.bench.some((p) => p.uid === action.uid);
+      if (!isBenchUid) return;
+      const selected = new Set(pending.selectedUids);
+      if (selected.has(action.uid)) selected.delete(action.uid);
+      else if (selected.size < pending.discardCount) selected.add(action.uid);
+      pending.selectedUids = [...selected];
+      return;
+    }
+    case "confirmBenchDiscard": {
+      const pending = store.pendingBenchDiscard;
+      if (!pending || pending.selectedUids.length !== pending.discardCount) return;
+      const player = store.players[pending.playerIdx];
+      for (const uid of pending.selectedUids) {
+        const idx = player.bench.findIndex((p) => p.uid === uid);
+        if (idx === -1) continue;
+        const [removed] = player.bench.splice(idx, 1);
+        if (!removed) continue;
+        player.discard.push(removed.base);
+        for (const attached of removed.attached) player.discard.push(attached);
+        appendLog(store, `P${pending.playerIdx + 1} discarded ${removed.base.card.name} from the Bench.`);
+      }
+      const nextPlayerIdx = pending.nextPlayerIdx;
+      store.pendingBenchDiscard = null;
+      // Check if the other player also needs to discard
+      if (nextPlayerIdx != null) {
+        queueBenchDiscardIfNeeded(store, nextPlayerIdx, null);
+      }
       return;
     }
     case "cancelDiscardSelection":

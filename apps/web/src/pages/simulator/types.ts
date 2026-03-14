@@ -111,6 +111,15 @@ export interface PendingEvolveFromDeck {
   remainingEffects: import("@luminous/engine").EffectAction[];
 }
 
+export interface PendingBenchDiscard {
+  playerIdx: 0 | 1;
+  discardCount: number;
+  selectedUids: string[];
+  title: string;
+  instruction: string;
+  nextPlayerIdx: 0 | 1 | null;
+}
+
 export interface DragPayload {
   playerIdx: 0 | 1;
   zone: Zone;
@@ -169,6 +178,8 @@ export interface SimulatorActions {
   toggleEvolveFromDeckCard: (uid: string) => Promise<void>;
   confirmEvolveFromDeck: () => Promise<void>;
   cancelEvolveFromDeck: () => Promise<void>;
+  toggleBenchDiscardCard: (uid: string) => Promise<void>;
+  confirmBenchDiscard: () => Promise<void>;
   useStadiumAbility: () => Promise<void>;
   dropToTrainerUse: (payload: DragPayload) => Promise<void>;
   retreat: (benchUid: string) => Promise<void>;
@@ -201,6 +212,7 @@ export interface SimulatorStore {
   pendingSelfSwitch: PendingSelfSwitch | null;
   pendingRareCandy: PendingRareCandy | null;
   pendingEvolveFromDeck: PendingEvolveFromDeck | null;
+  pendingBenchDiscard: PendingBenchDiscard | null;
   stadiumUsedThisTurn: [boolean, boolean];
   gameStarted: boolean;
 }
