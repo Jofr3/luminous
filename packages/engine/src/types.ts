@@ -51,6 +51,7 @@ export interface CardData {
   types: EnergyType[];
   stage: Stage | null;
   suffix: string | null;
+  tera?: boolean;
   evolveFrom: string | null;
   retreat: number | null;
   attacks: CardAttack[];

@@ -43,6 +43,7 @@ function assembleCard(
 ) {
   return {
     ...card,
+    tera: Boolean(card.tera),
     types: types.map((type) => type.type),
     attacks: assembleAttacks(attacks),
     abilities: abilities.map((ability) => ({ type: ability.type, name: ability.name, effect: ability.effect })),
@@ -60,7 +61,7 @@ async function loadCardById(c: AppEnv["Bindings"] extends never ? never : any, i
   const [card, attacks, abilities, modifiers, types] = await Promise.all([
     db.prepare(
       `SELECT c.id, c.local_id, c.name, c.image, c.category, c.rarity, c.hp,
-              c.stage, c.trainer_type, c.energy_type, c.suffix, c.retreat, c.effect,
+              c.stage, c.trainer_type, c.energy_type, c.suffix, c.tera, c.retreat, c.effect,
               c.evolve_from, c.set_id, s.name as set_name
        FROM cards c
        LEFT JOIN sets s ON c.set_id = s.id

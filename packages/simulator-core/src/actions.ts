@@ -22,7 +22,9 @@ import {
   canAct,
   canEvolvePokemon,
   drawFromDeck,
+  enforceBenchLimit,
   findPokemon,
+  getMaxBenchSize,
   isBasicPokemon,
   isEvolutionPokemon,
   makePokemonInPlay,
@@ -245,7 +247,7 @@ function queueDeckSearchPrompt(
   const player = store.players[playerIdx];
   const destination = effect.destination ?? "hand";
   const count = destination === "bench"
-    ? Math.min(effect.count, Math.max(0, 5 - player.bench.length))
+    ? Math.min(effect.count, Math.max(0, getMaxBenchSize(store, playerIdx) - player.bench.length))
     : effect.count;
 
   if (count <= 0) {
@@ -825,6 +827,7 @@ function applyGenericEffects(
         store.players[stadiumOwner].discard.push(stadiumCard);
         appendLog(store, `${stadiumCard.card.name} was discarded.`);
         store.stadium = null;
+        enforceBenchLimit(store, stadiumOwner);
         discardedStadiumThisSequence = true;
         break;
       }
@@ -1152,9 +1155,10 @@ function applyGenericEffects(
           if (discarded >= effect.count) break;
         }
         if (effect.includeStadium && store.stadium) {
-          const stadiumOwner = store.players[store.stadium.playedByPlayer];
-          stadiumOwner.discard.push(store.stadium.card);
+          const stadiumOwnerIdx = store.stadium.playedByPlayer;
+          store.players[stadiumOwnerIdx].discard.push(store.stadium.card);
           store.stadium = null;
+          enforceBenchLimit(store, stadiumOwnerIdx);
           discarded += 1;
           appendLog(store, "Stadium was discarded.");
         }
@@ -1359,11 +1363,12 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
       for (const log of result.logs) appendLog(store, log);
       if (engineCard.card.trainerType === "Supporter") player.supporterPlayedThisTurn = true;
       if (engineCard.card.trainerType === "Stadium") {
+        const oldStadiumOwner = store.stadium?.playedByPlayer;
         if (store.stadium) {
-          const oldOwner = store.players[store.stadium.playedByPlayer];
-          oldOwner.discard.push(store.stadium.card);
+          store.players[store.stadium.playedByPlayer].discard.push(store.stadium.card);
         }
         store.stadium = { card: playedCard, playedByPlayer: store.currentTurn };
+        if (oldStadiumOwner != null) enforceBenchLimit(store, oldStadiumOwner);
         return;
       }
       applyGenericEffects(store, store.currentTurn, (store.currentTurn === 0 ? 1 : 0) as PlayerIndex, result.effects);
@@ -1455,7 +1460,7 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
         if (card) selectedCards.push(card);
       }
       if (pending.destination === "bench") {
-        const benchSpace = Math.max(0, 5 - player.bench.length);
+        const benchSpace = Math.max(0, getMaxBenchSize(store, pending.playerIdx) - player.bench.length);
         for (const card of selectedCards.slice(0, benchSpace)) {
           player.bench.push(makePokemonInPlay(card, store.turnNumber));
         }
@@ -1705,12 +1710,13 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
           appendLog(store, "No Pokemon that evolve from Unidentified Fossil in your deck.");
           return;
         }
-        if (actor.bench.length >= 5) {
+        const maxBench = getMaxBenchSize(store, actorIdx);
+        if (actor.bench.length >= maxBench) {
           appendLog(store, "Your Bench is full.");
           return;
         }
         store.stadiumUsedThisTurn[actorIdx] = true;
-        const maxCount = Math.min(fossilEffect.count, 5 - actor.bench.length);
+        const maxCount = Math.min(fossilEffect.count, maxBench - actor.bench.length);
         store.pendingDeckSearch = {
           actorIdx,
           opponentIdx,
@@ -1892,7 +1898,7 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
     case "dropToBench": {
       if (action.payload.zone !== "hand" || action.payload.playerIdx !== action.targetPlayerIdx) return;
       const targetPlayer = store.players[action.targetPlayerIdx];
-      if (targetPlayer.bench.length >= 5) return;
+      if (targetPlayer.bench.length >= getMaxBenchSize(store, action.targetPlayerIdx)) return;
       if (store.phase === "playing" && !canAct(store, action.targetPlayerIdx, "bench a Pokemon")) return;
       const card = removeHandCard(targetPlayer, action.payload.uid);
       if (!card) return;
@@ -2019,6 +2025,7 @@ function applyActionInPlace(store: SimulatorStore, action: SimulatorAction): voi
       if (oldStadium) {
         store.players[oldStadium.playedByPlayer].discard.push(oldStadium.card);
         appendLog(store, `${oldStadium.card.card.name} is discarded.`);
+        enforceBenchLimit(store, oldStadium.playedByPlayer);
       }
       return;
     }

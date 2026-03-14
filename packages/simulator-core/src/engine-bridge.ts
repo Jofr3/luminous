@@ -34,6 +34,7 @@ export function toEngineCardData(card: CardSummary): CardData {
     types: (card.types ?? []) as CardData["types"],
     stage: (card.stage as CardData["stage"]) ?? null,
     suffix: card.suffix ?? null,
+    tera: card.tera ?? false,
     evolveFrom: card.evolve_from ?? null,
     retreat: card.retreat ?? null,
     attacks: (card.attacks ?? []).map(toEngineAttack),

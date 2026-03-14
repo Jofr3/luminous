@@ -8,7 +8,7 @@ import {
   validateAttack,
 } from "@luminous/engine";
 import { toEngineBoard, toEngineCardInstance, toEnginePokemon } from "./engine-bridge";
-import { buildEngineState, canAct, canEvolvePokemon } from "./helpers";
+import { buildEngineState, canAct, canEvolvePokemon, getMaxBenchSize } from "./helpers";
 import type { CardAttack as EngineAttack } from "@luminous/engine";
 import type { HandCardRules, PlayerIndex, RuleStatus, SimulatorRules, SimulatorStore } from "./types";
 
@@ -59,7 +59,7 @@ function getHandCardRules(store: SimulatorStore, playerIdx: PlayerIndex, uid: st
   if (card.card.category === "Pokemon") {
     if (card.card.stage === "Basic") {
       rules.active = !player.active ? allow() : deny("Active spot is already occupied.");
-      rules.bench = player.bench.length < 5 ? allow() : deny("Bench is full.");
+      rules.bench = player.bench.length < getMaxBenchSize(store, playerIdx) ? allow() : deny("Bench is full.");
       return rules;
     }
 
@@ -263,7 +263,7 @@ export function evaluateSimulatorRules(store: SimulatorStore): SimulatorRules {
       return allow();
     }
     if (effects.some((effect) => effect.type === "stadium_fossil_evolution")) {
-      if (player.bench.length >= 5) return deny("Bench is full.");
+      if (player.bench.length >= getMaxBenchSize(store, currentPlayer)) return deny("Bench is full.");
       return allow();
     }
     return deny("This Stadium has no activatable ability.");

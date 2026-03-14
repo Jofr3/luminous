@@ -1,6 +1,15 @@
 import type { CardInstance, GameState, PlayerBoard, PokemonInPlay, EffectAction } from "./types";
 import { parseEffectText } from "./parser";
 
+function getMaxBenchSize(state: GameState, playerIdx: 0 | 1): number {
+  if (!state.stadium) return 5;
+  const stadiumEffect = state.stadium.card.card.effect ?? "";
+  if (!/up to 8 pok[eé]mon on their bench/i.test(stadiumEffect)) return 5;
+  const player = state.players[playerIdx];
+  const allInPlay = [player.active, ...player.bench].filter((p): p is PokemonInPlay => p !== null);
+  return allInPlay.some((p) => p.base.card.tera) ? 8 : 5;
+}
+
 function checkPlayConditions(effects: EffectAction[], state: GameState, playerIdx: 0 | 1): string | null {
   const opponentIdx = (playerIdx === 0 ? 1 : 0) as 0 | 1;
   for (const effect of effects) {
@@ -114,7 +123,7 @@ export function canPlayTrainer(
   // Cards that search deck and put Pokemon onto bench: bench must have space
   const searchToBench = effects.find((e) => e.type === "search_deck" && e.destination === "bench");
   if (searchToBench) {
-    if (playerBoard.bench.length >= 5) {
+    if (playerBoard.bench.length >= getMaxBenchSize(state, playerIdx)) {
       return { allowed: false, reason: "Your Bench is full." };
     }
   }

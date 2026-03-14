@@ -161,6 +161,40 @@ export function matchesDeckSearchFilter(card: CardInstance, effect: Extract<Effe
   return true;
 }
 
+/**
+ * After a stadium leaves play or Tera status changes, enforce the default bench limit.
+ * The player who played the old stadium discards first, then the other player.
+ * Players choose which Pokémon to discard (for now, auto-discard from the end).
+ */
+export function enforceBenchLimit(store: SimulatorStore, firstPlayerIdx?: 0 | 1): void {
+  const order: Array<0 | 1> = firstPlayerIdx != null
+    ? [firstPlayerIdx, (firstPlayerIdx === 0 ? 1 : 0) as 0 | 1]
+    : [0, 1];
+  for (const pIdx of order) {
+    const maxBench = getMaxBenchSize(store, pIdx);
+    const player = store.players[pIdx];
+    while (player.bench.length > maxBench) {
+      const removed = player.bench.pop();
+      if (!removed) break;
+      // Discard the Pokémon and all its attached cards
+      player.discard.push(removed.base);
+      for (const attached of removed.attached) player.discard.push(attached);
+      appendLog(store, `P${pIdx + 1} discarded ${removed.base.card.name} from the Bench (bench limit).`);
+    }
+  }
+}
+
+export function getMaxBenchSize(store: SimulatorStore, playerIdx: 0 | 1): number {
+  if (!store.stadium) return 5;
+  const stadiumEffect = store.stadium.card.card.effect ?? "";
+  if (!/up to 8 pok[eé]mon on their bench/i.test(stadiumEffect)) return 5;
+  // Check if this player has any Tera Pokémon in play
+  const player = store.players[playerIdx];
+  const allInPlay = [player.active, ...player.bench].filter((p): p is PokemonInPlay => p !== null);
+  const hasTera = allInPlay.some((p) => p.base.card.tera);
+  return hasTera ? 8 : 5;
+}
+
 export function makePokemonInPlay(instance: CardInstance, turnNumber = 0): PokemonInPlay {
   return {
     uid: instance.uid.startsWith("sim-") ? `${instance.uid}-play` : instance.uid,

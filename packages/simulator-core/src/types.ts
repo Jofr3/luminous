@@ -34,6 +34,7 @@ export interface CardSummary {
   trainer_type?: string | null;
   energy_type?: string | null;
   suffix?: string | null;
+  tera?: boolean;
   evolve_from?: string | null;
   retreat?: number | null;
   effect?: string | null;
