@@ -18,7 +18,24 @@
     },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "zellij-mcp-server": "zellij-mcp-server"
+      }
+    },
+    "zellij-mcp-server": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1755406214,
+        "narHash": "sha256-rzbvr7tRpOO55GxMQKOUiarWfCE35dYekUjWp11jLEo=",
+        "owner": "GitJuhb",
+        "repo": "zellij-mcp-server",
+        "rev": "225b0a1379c9a8a95584fa47a0a8baa19657e80d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "GitJuhb",
+        "repo": "zellij-mcp-server",
+        "type": "github"
       }
     }
   },

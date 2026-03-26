@@ -1,17 +1,40 @@
 {
-  description = "Luminous - Pokemon Trading Card Game";
+  description = "Luminous";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    zellij-mcp-server = {
+      url = "github:GitJuhb/zellij-mcp-server";
+      flake = false;
+    };
   };
 
   outputs =
-    { nixpkgs, ... }:
+    { nixpkgs, zellij-mcp-server, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
         inherit system;
         config.allowUnfree = true;
+      };
+
+      zellij-mcp = pkgs.buildNpmPackage {
+        pname = "zellij-mcp-server";
+        version = "1.0.0";
+        src = zellij-mcp-server;
+        npmDepsHash = "sha256-NWveo/fYNIZixLIDUosiC+ItZa1mf4ZaOoPj1XLC9lQ=";
+        buildPhase = ''
+          npm run build
+        '';
+        installPhase = ''
+          mkdir -p $out/lib/zellij-mcp-server $out/bin
+          cp -r dist node_modules $out/lib/zellij-mcp-server/
+          cat > $out/bin/zellij-mcp-server <<WRAPPER
+          #!/bin/sh
+          exec ${pkgs.nodejs}/bin/node $out/lib/zellij-mcp-server/dist/index.js "\$@"
+          WRAPPER
+          chmod +x $out/bin/zellij-mcp-server
+        '';
       };
 
       agent-browser = pkgs.stdenv.mkDerivation rec {
@@ -44,6 +67,7 @@
           nodejs
           turbo
           agent-browser
+          zellij-mcp
         ];
       };
     };
